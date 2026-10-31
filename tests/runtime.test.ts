@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';
+import * as Blockly from 'blockly';
+import {Engine,newProject,object} from '../src/runtime';
+(globalThis as any).requestAnimationFrame=(f:()=>void)=>setTimeout(f,1);
+const project=newProject(true);const player=project.scenes[0].objects[0];const initial=structuredClone(player);let errors:string[]=[];const engine=new Engine([player],e=>errors.push(e));
+await engine.start();engine.keys.add('ArrowRight');await new Promise(r=>setTimeout(r,45));engine.keys.clear();assert.ok(player.x>0,'example should move right');assert.equal(initial.x,0,'editing object should stay unchanged');engine.stop();assert.equal(errors.length,0,errors.join('\n'));
+const ws=new Blockly.Workspace();Blockly.serialization.workspaces.load(initial.code,ws);const state=Blockly.serialization.workspaces.save(ws);const ws2=new Blockly.Workspace();Blockly.serialization.workspaces.load(state,ws2);assert.equal(ws2.getTopBlocks(false)[0].type,'event_start');
+const n=(x:number)=>({shadow:{type:'math_number',fields:{NUM:x}}});const testObj=object();testObj.code={blocks:{languageVersion:0,blocks:[{type:'event_start',next:{block:{type:'controls_repeat_ext',inputs:{TIMES:n(3),DO:{block:{type:'controls_if',inputs:{IF0:{block:{type:'logic_boolean',fields:{BOOL:'TRUE'}}},DO0:{block:{type:'change_x',inputs:{N:n(5)}}}}}}}}}}]}};const second=new Engine([testObj],e=>errors.push(e));await second.start();await new Promise(r=>setTimeout(r,40));assert.equal(testObj.x,15,'condition and repeat should execute');second.stop();assert.equal(errors.length,0,errors.join('\n'));ws.dispose();ws2.dispose();console.log('PASS: example movement, separate runtime state, Blockly roundtrip, repeat and conditional');
