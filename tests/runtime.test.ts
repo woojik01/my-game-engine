@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import * as Blockly from 'blockly';
 import { exportHtml } from '../src/exportHtml';
-import { Engine, newProject, normalizeProject, object } from '../src/runtime';
+import { Engine, newProject, normalizeKeyboardKey, normalizeProject, object } from '../src/runtime';
 
 (globalThis as any).requestAnimationFrame = (callback: () => void) => setTimeout(callback, 1);
 const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 const number = (value: number) => ({ shadow: { type: 'math_number', fields: { NUM: value } } });
 const errors: string[] = [];
+
+assert.equal(normalizeKeyboardKey('Right'), 'ArrowRight');
+assert.equal(normalizeKeyboardKey('Space'), ' ');
+assert.equal(normalizeKeyboardKey('A'), 'a');
 
 const project = newProject(true);
 const player = project.scenes[0].objects[0];

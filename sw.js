@@ -1,4 +1,4 @@
-const CACHE_NAME = 'my-game-engine-v0.2.2';
+const CACHE_NAME = 'my-game-engine-v0.2.3';
 const APP_ROOT = new URL('./', self.registration.scope).href;
 
 self.addEventListener('install', (event) => {

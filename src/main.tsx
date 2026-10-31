@@ -4,7 +4,7 @@ import * as Blockly from 'blockly';
 import type Phaser from 'phaser';
 import { toolbox } from './blocks';
 import {
-  Camera, Engine, newProject, normalizeProject, object, Obj, Project, Scene, SoundAsset, TileMap, uid,
+  Camera, Engine, newProject, normalizeKeyboardKey, normalizeProject, object, Obj, Project, Scene, SoundAsset, TileMap, uid,
 } from './runtime';
 import { exportHtml } from './exportHtml';
 import './style.css';
@@ -280,10 +280,11 @@ function App() {
       const target = event.target;
       if (!engine.current || (target instanceof HTMLElement &&
           (target.isContentEditable || Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))))) return;
-      engine.current.keys.add(event.key);
-      if (event.key.startsWith('Arrow') || event.key === ' ') event.preventDefault();
+      const key = normalizeKeyboardKey(event.key);
+      engine.current.keys.add(key);
+      if (key.startsWith('Arrow') || key === ' ') event.preventDefault();
     };
-    const up = (event: KeyboardEvent) => engine.current?.keys.delete(event.key);
+    const up = (event: KeyboardEvent) => engine.current?.keys.delete(normalizeKeyboardKey(event.key));
     const blur = () => engine.current?.keys.clear();
     // Blockly handles keyboard events inside its workspace. Capture first so game
     // input still reaches the runtime while the editor canvas is focused.
@@ -438,7 +439,7 @@ function App() {
 
   return <div className="app">
     <header>
-      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.2</small></span></div>
+      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.3</small></span></div>
       <input className="project-name" aria-label="프로젝트 이름" value={project.name} disabled={running} onChange={(event) => edit((draft) => { draft.name = event.target.value; })} />
       <div className="header-actions">
         <button disabled={running} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) setProject(newProject()); }}>새 프로젝트</button>

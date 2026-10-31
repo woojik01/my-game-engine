@@ -130,6 +130,11 @@ export function normalizeProject(input: any): Project {
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const keyAliases: Record<string, string> = {
+  Right: 'ArrowRight', Left: 'ArrowLeft', Up: 'ArrowUp', Down: 'ArrowDown',
+  Space: ' ', Spacebar: ' ',
+};
+export const normalizeKeyboardKey = (key: string) => keyAliases[key] || (key.length === 1 ? key.toLowerCase() : key);
 type EngineOptions = {
   scenes?: Scene[]; sceneId?: string; gravity?: number; camera?: Camera; tilemap?: TileMap;
   sounds?: SoundAsset[]; onSceneChange?: (scene: Scene) => void;
