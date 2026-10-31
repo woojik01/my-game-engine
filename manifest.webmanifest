@@ -2,7 +2,7 @@
   "id": "./",
   "name": "My Game Engine",
   "short_name": "My Game Engine",
-  "description": "한국어 블록으로 만드는 2D 게임 편집기",
+  "description": "물리, 타일맵, 장면 전환을 지원하는 한국어 2D 게임 편집기",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

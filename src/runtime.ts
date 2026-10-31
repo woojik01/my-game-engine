@@ -1,41 +1,99 @@
 import * as Blockly from 'blockly';
 import './blocks';
-export type Obj={id:string,name:string,x:number,y:number,size:number,direction:number,visible:boolean,shape:string,color:string,image?:string,code:any};
-export type Scene={id:string,name:string,background:string,objects:Obj[]};
-export type Project={version:number,name:string,scenes:Scene[],sceneId:string,selectedId:string};
-export const uid=()=>crypto.randomUUID();
-export const object=(name='오브젝트'):Obj=>({id:uid(),name,x:0,y:0,size:100,direction:90,visible:true,shape:'circle',color:'#4b87ef',code:{}});
-export function newProject(withExample=false):Project {const a=object('플레이어'); if(withExample){a.code=structuredClone(exampleRef());} const s={id:uid(),name:'장면 1',background:'#eef5ff',objects:[a]};return {version:1,name:withExample?'첫 번째 게임':'새 프로젝트',scenes:[s],sceneId:s.id,selectedId:a.id};}
-import {example} from './blocks';
-function exampleRef(){return example;}
-const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
-export class Engine {
- active=true; keys=new Set<string>(); mouse=false; vars:Record<string,any>={}; workspaces=new Map<string,Blockly.Workspace>(); onError:(s:string)=>void;
- constructor(public objects:Obj[],onError:(s:string)=>void){this.onError=onError;}
- stop(){this.active=false;this.workspaces.forEach(w=>w.dispose());this.workspaces.clear();}
- async start(){ for(const o of this.objects){const ws=new Blockly.Workspace();try{Blockly.serialization.workspaces.load(o.code||{},ws);this.workspaces.set(o.id,ws);for(const root of ws.getTopBlocks(true)){if(root.type==='event_start')this.launch(root.getNextBlock(),o);}}catch(e){ws.dispose();this.onError(`${o.name}의 블록을 읽지 못했습니다: ${String(e)}`);}} }
- click(o:Obj){const w=this.workspaces.get(o.id); if(!w)return; for(const root of w.getTopBlocks(true))if(root.type==='event_click')this.launch(root.getNextBlock(),o);}
- async launch(b:any,o:Obj){try{await this.run(b,o)}catch(e){if(this.active)this.onError(`${o.name}: ${e instanceof Error?e.message:String(e)}`)}}
- val(b:any,o:Obj,n:string,defaultValue:any=0){const c=b.getInputTargetBlock(n);return c?this.eval(c,o):defaultValue;}
- eval(b:any,o:Obj):any{const v=(n:string,d:any=0)=>this.val(b,o,n,d),f=(n:string)=>b.getFieldValue(n);switch(b.type){
- case 'math_number':return Number(f('NUM'));case 'logic_boolean':return f('BOOL')==='TRUE';case 'key_pressed':return this.keys.has(f('KEY'));case 'mouse_pressed':return this.mouse;
- case 'touching':return this.objects.some(t=>t!==o&&t.visible&&o.visible&&Math.abs(t.x-o.x)<(t.size+o.size)*.3&&Math.abs(t.y-o.y)<(t.size+o.size)*.3);
- case 'variables_get':return this.vars[f('VAR')]??0;
- case 'logic_negate':return !v('BOOL');case 'logic_operation':return f('OP')==='AND'?v('A')&&v('B'):v('A')||v('B');
- case 'logic_compare':{const a=v('A'),c=v('B');return ({EQ:()=>a==c,NEQ:()=>a!=c,LT:()=>a<c,LTE:()=>a<=c,GT:()=>a>c,GTE:()=>a>=c} as any)[f('OP')]?.()??false;}
- case 'math_arithmetic':{let a=Number(v('A')),c=Number(v('B'));switch(f('OP')){case 'ADD':return a+c;case 'MINUS':return a-c;case 'MULTIPLY':return a*c;case 'DIVIDE':if(c===0)throw Error('0으로 나눌 수 없습니다.');return a/c;case 'POWER':return a**c;}return 0;}
- case 'math_random_int':{let a=Math.ceil(Number(v('FROM'))),c=Math.floor(Number(v('TO')));if(c<a)[a,c]=[c,a];return Math.floor(Math.random()*(c-a+1))+a;}
- default:throw Error(`지원하지 않는 값 블록: ${b.type}`);}}
- async run(block:any,o:Obj){let count=0;for(let b=block; b&&this.active;b=b.getNextBlock()) {if(++count%50===0)await frame();if(!this.active)return;const v=(n:string,d:any=0)=>Number(this.val(b,o,n,d));switch(b.type){
- case 'forever':while(this.active){await this.run(b.getInputTargetBlock('DO'),o);await frame();}break;
- case 'controls_repeat_ext':for(let i=0,n=Math.max(0,Math.min(100000,Math.floor(v('TIMES'))));i<n&&this.active;i++){await this.run(b.getInputTargetBlock('DO'),o);if(i%50===0)await frame();}break;
- case 'controls_if':{let done=false;for(let i=0;b.getInput('IF'+i);i++)if(this.val(b,o,'IF'+i,false)){await this.run(b.getInputTargetBlock('DO'+i),o);done=true;break;}if(!done&&b.getInput('ELSE'))await this.run(b.getInputTargetBlock('ELSE'),o);break;}
- case 'wait_seconds':{const end=performance.now()+Math.max(0,v('N'))*1000;do{await frame()}while(this.active&&performance.now()<end);break;}
- case 'move_steps':o.x+=Math.sin(o.direction*Math.PI/180)*v('N');o.y+=Math.cos(o.direction*Math.PI/180)*v('N');break;
- case 'change_x':o.x+=v('N');break;case 'change_y':o.y+=v('N');break;case 'goto_xy':o.x=v('X');o.y=v('Y');break;case 'direction':o.direction=v('N');break;case 'turn':o.direction+=v('N');break;
- case 'show_obj':o.visible=true;break;case 'hide_obj':o.visible=false;break;case 'set_size':o.size=Math.max(1,v('N'));break;case 'change_size':o.size=Math.max(1,o.size+v('N'));break;
- case 'variables_set':this.vars[b.getFieldValue('VAR')]=this.val(b,o,'VALUE');break;case 'math_change':{const id=b.getFieldValue('VAR');this.vars[id]=Number(this.vars[id]||0)+v('DELTA');break;}
- case 'play_sound':try{const ctx=new AudioContext(),osc=ctx.createOscillator(),gain=ctx.createGain();osc.frequency.value=440;gain.gain.value=.06;osc.connect(gain).connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.12);osc.onended=()=>ctx.close();}catch{/* unavailable audio is nonfatal */}break;
- default:throw Error(`지원하지 않는 명령 블록: ${b.type}`);
- }}}
+import { example } from './blocks';
+
+export type Camera = { x: number; y: number; zoom: number; followId?: string };
+export type TileMap = { columns: number; rows: number; tileSize: number; palette: string[]; tiles: Array<Array<number | null>> };
+export type SoundAsset = { id: string; name: string; dataUrl: string };
+export type Obj = {
+  id: string; name: string; x: number; y: number; size: number; direction: number;
+  visible: boolean; shape: string; color: string; image?: string; code: any;
+  physics: boolean; vx: number; vy: number; bounce: number;
+};
+export type Scene = {
+  id: string; name: string; background: string; objects: Obj[];
+  gravity: number; camera: Camera; tilemap: TileMap;
+};
+export type Project = {
+  version: number; name: string; scenes: Scene[]; sceneId: string; selectedId: string; sounds: SoundAsset[];
+};
+
+export const uid = () => crypto.randomUUID();
+export const TILE_PALETTE = ['#3978c6', '#68a9e8', '#74b987', '#dba552', '#8266bd'];
+export const blankTileMap = (): TileMap => ({
+  columns: 15, rows: 11, tileSize: 32, palette: [...TILE_PALETTE],
+  tiles: Array.from({ length: 11 }, () => Array<number | null>(15).fill(null)),
+});
+export const object = (name = '오브젝트'): Obj => ({
+  id: uid(), name, x: 0, y: 0, size: 100, direction: 90, visible: true,
+  shape: 'circle', color: '#4b87ef', code: {}, physics: false, vx: 0, vy: 0, bounce: 0.2,
+});
+const makeScene = (name = '장면 1'): Scene => ({
+  id: uid(), name, background: '#eef5ff', objects: [object(name === '장면 1' ? '플레이어' : '오브젝트 1')],
+  gravity: 420, camera: { x: 0, y: 0, zoom: 1 }, tilemap: blankTileMap(),
+});
+export function newProject(withExample = false): Project {
+  const scene = makeScene();
+  if (withExample) scene.objects[0].code = structuredClone(example);
+  return {
+    version: 2, name: withExample ? '첫 번째 게임' : '새 프로젝트',
+    scenes: [scene], sceneId: scene.id, selectedId: scene.objects[0].id, sounds: [],
+  };
 }
+
+/** Upgrade v1 projects while keeping existing scenes, objects, and blocks. */
+export function normalizeProject(input: any): Project {
+  if (!input || ![1, 2].includes(input.version) || typeof input.name !== 'string' ||
+      !Array.isArray(input.scenes) || !input.scenes.length) {
+    throw new Error('지원하지 않는 프로젝트 형식입니다.');
+  }
+  const scenes: Scene[] = input.scenes.map((raw: any, index: number) => {
+    if (!raw || typeof raw.id !== 'string' || !Array.isArray(raw.objects)) {
+      throw new Error('장면 또는 오브젝트 데이터가 올바르지 않습니다.');
+    }
+    if (!raw.objects.length) throw new Error('장면마다 오브젝트가 하나 이상 있어야 합니다.');
+    const objects: Obj[] = raw.objects.map((o: any) => {
+      if (!o || typeof o.id !== 'string' || !Number.isFinite(o.x) || !Number.isFinite(o.y)) {
+        throw new Error('오브젝트 데이터가 올바르지 않습니다.');
+      }
+      return {
+        ...o,
+        name: typeof o.name === 'string' ? o.name : '오브젝트',
+        size: Number.isFinite(o.size) ? o.size : 100,
+        direction: Number.isFinite(o.direction) ? o.direction : 90,
+        visible: o.visible !== false,
+        shape: typeof o.shape === 'string' ? o.shape : 'circle',
+        color: typeof o.color === 'string' ? o.color : '#4b87ef',
+        code: o.code && typeof o.code === 'object' ? o.code : {},
+        physics: Boolean(o.physics),
+        vx: Number.isFinite(o.vx) ? o.vx : 0,
+        vy: Number.isFinite(o.vy) ? o.vy : 0,
+        bounce: Number.isFinite(o.bounce) ? Math.min(1, Math.max(0, o.bounce)) : 0.2,
+      };
+    });
+    const map = raw.tilemap;
+    const defaults = blankTileMap();
+    const columns = Number.isInteger(map?.columns) ? Math.min(60, Math.max(1, map.columns)) : defaults.columns;
+    const rows = Number.isInteger(map?.rows) ? Math.min(40, Math.max(1, map.rows)) : defaults.rows;
+    const palette = Array.isArray(map?.palette)
+      ? map.palette.filter((color: any) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)).slice(0, 16)
+      : [];
+    const tilemap: TileMap = {
+      columns, rows,
+      tileSize: Number.isFinite(map?.tileSize) ? Math.min(96, Math.max(8, map.tileSize)) : defaults.tileSize,
+      palette: palette.length ? palette : defaults.palette,
+      tiles: Array.from({ length: rows }, (_, y) =>
+        Array.from({ length: columns }, (_, x) => {
+          const cell = map?.tiles?.[y]?.[x];
+          return Number.isInteger(cell) && cell >= 0 && cell < (palette.length || defaults.palette.length) ? cell : null;
+        }),
+      ),
+    };
+    const camera = raw.camera || {};
+    return {
+      id: raw.id,
+      name: typeof raw.name === 'string' ? raw.name : '장면 ' + (index + 1),
+      background: typeof raw.background === 'string' ? raw.background : '#eef5ff',
+      objects,
+      gravity: Number.isFinite(raw.gravity) ? Math.min(2000, Math.max(0, raw.gravity)) : 420,
+    
