@@ -277,18 +277,22 @@ function App() {
   }, [tab]);
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (!engine.current || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      const target = event.target;
+      if (!engine.current || (target instanceof HTMLElement &&
+          (target.isContentEditable || Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))))) return;
       engine.current.keys.add(event.key);
       if (event.key.startsWith('Arrow') || event.key === ' ') event.preventDefault();
     };
     const up = (event: KeyboardEvent) => engine.current?.keys.delete(event.key);
     const blur = () => engine.current?.keys.clear();
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
+    // Blockly handles keyboard events inside its workspace. Capture first so game
+    // input still reaches the runtime while the editor canvas is focused.
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
     window.addEventListener('blur', blur);
     return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
       window.removeEventListener('blur', blur);
     };
   }, []);
@@ -434,7 +438,7 @@ function App() {
 
   return <div className="app">
     <header>
-      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.1</small></span></div>
+      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.2</small></span></div>
       <input className="project-name" aria-label="프로젝트 이름" value={project.name} disabled={running} onChange={(event) => edit((draft) => { draft.name = event.target.value; })} />
       <div className="header-actions">
         <button disabled={running} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) setProject(newProject()); }}>새 프로젝트</button>
