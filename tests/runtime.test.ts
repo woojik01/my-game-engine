@@ -114,4 +114,54 @@ tileEngine.stop();
 
 const pad = {
   buttons: Array.from({ length: 16 }, (_, index) => ({ pressed: index === 0 })),
-  axes: [0,
+  axes: [0, 0],
+} as unknown as Gamepad;
+const gamepadObj = object();
+const gamepadEngine = new Engine([gamepadObj], (message) => errors.push(message), { gamepadSource: () => [pad] });
+gamepadEngine.update();
+assert.equal(gamepadEngine.keys.has('Gamepad:A'), true, 'gamepad buttons are polled into block input state');
+const padBlock = { type: 'gamepad_pressed', getFieldValue: () => 'A', getInputTargetBlock: () => null };
+assert.equal(gamepadEngine.eval(padBlock, gamepadObj), true, 'the gamepad condition block reads the active button');
+gamepadEngine.stop();
+
+const sceneA = newProject().scenes[0];
+sceneA.name = '장면 1';
+sceneA.objects[0].code = { blocks: { languageVersion: 0, blocks: [{
+  type: 'event_start',
+  next: { block: { type: 'switch_scene', fields: { NAME: '장면 2' } } },
+}] } };
+const sceneB = newProject().scenes[0];
+sceneB.name = '장면 2';
+sceneB.objects[0].code = { blocks: { languageVersion: 0, blocks: [{
+  type: 'event_start',
+  next: { block: { type: 'camera_set', inputs: { X: number(24), Y: number(-12) }, next: {
+    block: { type: 'camera_zoom', inputs: { N: number(1.5) }, next: {
+      block: { type: 'change_x', inputs: { N: number(6) } },
+    } },
+  } } },
+}] } };
+let activeScene = '';
+const sceneEngine = new Engine(structuredClone(sceneA.objects), (message) => errors.push(message), {
+  scenes: [sceneA, sceneB], sceneId: sceneA.id,
+  onSceneChange: (current) => { activeScene = current.id; },
+  gamepadSource: () => [],
+});
+await sceneEngine.start();
+await wait(35);
+assert.equal(sceneEngine.sceneId, sceneB.id, 'scene switch block selects another saved scene');
+assert.equal(activeScene, sceneB.id);
+assert.equal(sceneEngine.camera.x, 24, 'camera position blocks update the runtime camera');
+assert.equal(sceneEngine.camera.y, -12);
+assert.equal(sceneEngine.camera.zoom, 1.5);
+assert.equal(sceneEngine.objects[0].x, 6, 'new scene start blocks run after switching');
+sceneEngine.stop();
+
+const html = exportHtml(project);
+const exportedScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+assert.ok(exportedScript, 'HTML export includes a playable script');
+assert.doesNotThrow(() => new Function(exportedScript), 'exported game script parses as JavaScript');
+assert.ok(html.includes('id="game"') && html.includes('project-data'), 'export includes a canvas and embedded project');
+assert.equal(errors.length, 0, errors.join('\n'));
+workspace.dispose();
+restored.dispose();
+console.log('PASS: movement, Blockly roundtrip, repeat/conditions, custom blocks, click events, v1 migration, physics, tiles, gamepad, camera, scenes, and HTML export');

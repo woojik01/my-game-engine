@@ -38,4 +38,31 @@ export const toolbox: any = {
   kind: 'categoryToolbox',
   contents: [
     { kind: 'category', name: '시작', colour: 42, contents: [b('event_start'), b('event_click')] },
-    { kind: 'category', name: '흐름', colour: 30, contents: [b('forever'), b('controls_repeat_ext', { TIMES: num(10) }), b('controls_
+    { kind: 'category', name: '흐름', colour: 30, contents: [b('forever'), b('controls_repeat_ext', { TIMES: num(10) }), b('controls_if'), { kind: 'block', type: 'controls_if', extraState: { hasElse: true } }, b('wait_seconds', { N: num(1) }), b('switch_scene')] },
+    { kind: 'category', name: '움직임', colour: 210, contents: [...['move_steps', 'change_x', 'change_y', 'direction', 'turn'].map((type) => b(type, { N: num(type === 'direction' ? 90 : 10) })), b('goto_xy', { X: num(0), Y: num(0) })] },
+    { kind: 'category', name: '생김새', colour: 285, contents: [b('show_obj'), b('hide_obj'), b('set_size', { N: num(100) }), b('change_size', { N: num(10) })] },
+    { kind: 'category', name: '소리', colour: 330, contents: [b('play_sound')] },
+    { kind: 'category', name: '판단', colour: 195, contents: [b('key_pressed'), b('gamepad_pressed'), b('mouse_pressed'), b('touching'), b('logic_compare'), b('logic_operation'), b('logic_negate'), b('logic_boolean')] },
+    { kind: 'category', name: '계산', colour: 230, contents: [b('math_number'), b('math_arithmetic'), b('math_random_int', { FROM: num(1), TO: num(10) })] },
+    { kind: 'category', name: '자료', colour: 330, custom: 'VARIABLE' },
+    { kind: 'category', name: '물리', colour: 15, contents: [b('physics_enable'), b('physics_disable'), b('velocity_set', { X: num(0), Y: num(250) }), b('impulse', { X: num(0), Y: num(120) })] },
+    { kind: 'category', name: '카메라', colour: 160, contents: [b('camera_set', { X: num(0), Y: num(0) }), b('camera_zoom', { N: num(1) }), b('camera_follow')] },
+    { kind: 'category', name: '내 블록', colour: 290, custom: 'PROCEDURE' },
+  ],
+};
+
+const condition = (key: string, axis: string, value: number, next?: any): any => ({
+  type: 'controls_if',
+  inputs: {
+    IF0: { block: { type: 'key_pressed', fields: { KEY: key } } },
+    DO0: { block: { type: axis, inputs: { N: num(value) } } },
+  },
+  ...(next ? { next: { block: next } } : {}),
+});
+const movement = condition('ArrowRight', 'change_x', 4,
+  condition('ArrowLeft', 'change_x', -4,
+    condition('ArrowUp', 'change_y', 4,
+      condition('ArrowDown', 'change_y', -4))));
+export const example: any = {
+  blocks: { languageVersion: 0, blocks: [{ type: 'event_start', x: 35, y: 35, next: { block: { type: 'forever', inputs: { DO: { block: movement } } } } }] },
+};
