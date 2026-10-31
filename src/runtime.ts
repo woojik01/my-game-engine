@@ -10,11 +10,11 @@ import {example} from './blocks';
 function exampleRef(){return example;}
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 export class Engine {
- active=true; keys=new Set<string>(); mouse=false; vars:Record<string,any>={}; workspaces:Blockly.Workspace[]=[]; onError:(s:string)=>void;
+ active=true; keys=new Set<string>(); mouse=false; vars:Record<string,any>={}; workspaces=new Map<string,Blockly.Workspace>(); onError:(s:string)=>void;
  constructor(public objects:Obj[],onError:(s:string)=>void){this.onError=onError;}
- stop(){this.active=false;this.workspaces.forEach(w=>w.dispose());this.workspaces=[];}
- async start(){ for(const o of this.objects){const ws=new Blockly.Workspace();try{Blockly.serialization.workspaces.load(o.code||{},ws);this.workspaces.push(ws);for(const root of ws.getTopBlocks(true)){if(root.type==='event_start')this.launch(root.getNextBlock(),o);}}catch(e){this.onError(`${o.name}의 블록을 읽지 못했습니다: ${String(e)}`);}} }
- click(o:Obj){const i=this.objects.indexOf(o),w=this.workspaces[i]; if(!w)return; for(const root of w.getTopBlocks(true))if(root.type==='event_click')this.launch(root.getNextBlock(),o);}
+ stop(){this.active=false;this.workspaces.forEach(w=>w.dispose());this.workspaces.clear();}
+ async start(){ for(const o of this.objects){const ws=new Blockly.Workspace();try{Blockly.serialization.workspaces.load(o.code||{},ws);this.workspaces.set(o.id,ws);for(const root of ws.getTopBlocks(true)){if(root.type==='event_start')this.launch(root.getNextBlock(),o);}}catch(e){ws.dispose();this.onError(`${o.name}의 블록을 읽지 못했습니다: ${String(e)}`);}} }
+ click(o:Obj){const w=this.workspaces.get(o.id); if(!w)return; for(const root of w.getTopBlocks(true))if(root.type==='event_click')this.launch(root.getNextBlock(),o);}
  async launch(b:any,o:Obj){try{await this.run(b,o)}catch(e){if(this.active)this.onError(`${o.name}: ${e instanceof Error?e.message:String(e)}`)}}
  val(b:any,o:Obj,n:string,defaultValue:any=0){const c=b.getInputTargetBlock(n);return c?this.eval(c,o):defaultValue;}
  eval(b:any,o:Obj):any{const v=(n:string,d:any=0)=>this.val(b,o,n,d),f=(n:string)=>b.getFieldValue(n);switch(b.type){

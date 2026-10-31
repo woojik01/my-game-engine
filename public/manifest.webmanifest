@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "My Game Engine",
+  "short_name": "My Game Engine",
+  "description": "한국어 블록으로 만드는 2D 게임 편집기",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#edf2f9",
+  "theme_color": "#3578e5",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
