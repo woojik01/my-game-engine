@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-개발 서버 주소를 브라우저에서 엽니다. 배포용 파일은 `npm run build`로 `dist/`에 생성됩니다. 핵심 실행기 검사는 `npm test`로 실행합니다.
+개발 서버 주소를 브라우저에서 엽니다. 배포용 파일은 `npm run build`로 `dist/`에 만들고, GitHub Pages가 `main` 루트를 직접 배포할 수 있도록 `index.html`, `assets/`, 매니페스트와 서비스 워커도 함께 갱신합니다. 핵심 실행기 검사는 `npm test`로 실행합니다.
 
 ## 시작하기
 
