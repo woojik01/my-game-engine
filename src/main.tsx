@@ -56,12 +56,13 @@ function download(name: string, text: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function Stage({ state, onSelect, onMove, onClick, onError }: {
+function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
   state: any;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onClick: (obj: Obj) => void;
   onError: (message: string) => void;
+  focusRef: { current: HTMLDivElement | null };
 }) {
   const element = useRef<HTMLDivElement>(null);
   const latest = useRef({ state, onSelect, onMove, onClick, onError });
@@ -191,7 +192,7 @@ function Stage({ state, onSelect, onMove, onClick, onError }: {
     return () => { disposed = true; game?.destroy(true); };
   }, []);
 
-  return <div className="stage" ref={element} aria-label="게임 무대" />;
+  return <div className="stage" ref={(node) => { element.current = node; focusRef.current = node; }} aria-label="게임 무대" tabIndex={0} />;
 }
 
 function App() {
@@ -211,6 +212,7 @@ function App() {
   const image = useRef<HTMLInputElement>(null);
   const soundFile = useRef<HTMLInputElement>(null);
   const pulseTimers = useRef(new Map<string, number>());
+  const stageFocus = useRef<HTMLDivElement | null>(null);
 
   const scene = project.scenes.find((item) => item.id === project.sceneId) || project.scenes[0];
   const selected = scene?.objects.find((item) => item.id === project.selectedId) || scene?.objects[0];
@@ -322,6 +324,7 @@ function App() {
     });
     engine.current = runner;
     setRunning(true);
+    requestAnimationFrame(() => stageFocus.current?.focus({ preventScroll: true }));
     void runner.start();
   };
   const selectObject = (id: string) => { if (!running) edit((draft) => { draft.selectedId = id; }); };
@@ -439,7 +442,7 @@ function App() {
 
   return <div className="app">
     <header>
-      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.3</small></span></div>
+      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.4</small></span></div>
       <input className="project-name" aria-label="프로젝트 이름" value={project.name} disabled={running} onChange={(event) => edit((draft) => { draft.name = event.target.value; })} />
       <div className="header-actions">
         <button disabled={running} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) setProject(newProject()); }}>새 프로젝트</button>
@@ -458,7 +461,7 @@ function App() {
         <div className={'panel stage-panel ' + (full ? 'fullscreen' : '')}>
           <div className="panel-title"><div><strong>무대</strong><span className="muted"> {running ? '실행 중' : '편집 중'}</span></div><button onClick={() => setFull(!full)}>{full ? '닫기' : '⛶'}</button></div>
           <div onPointerDown={() => { if (engine.current) engine.current.mouse = true; }} onPointerUp={() => { if (engine.current) engine.current.mouse = false; }} onPointerCancel={() => { if (engine.current) engine.current.mouse = false; }}>
-            <Stage state={view} onSelect={selectObject} onClick={(target) => engine.current?.click(target)} onError={setError} onMove={(id, x, y) => editObject((current) => {
+          <Stage state={view} focusRef={stageFocus} onSelect={selectObject} onClick={(target) => engine.current?.click(target)} onError={setError} onMove={(id, x, y) => editObject((current) => {
               if (current.id === id) { current.x = x; current.y = y; }
             })} />
           </div>
