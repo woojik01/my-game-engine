@@ -434,7 +434,7 @@ function App() {
 
   return <div className="app">
     <header>
-      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.0</small></span></div>
+      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.1</small></span></div>
       <input className="project-name" aria-label="프로젝트 이름" value={project.name} disabled={running} onChange={(event) => edit((draft) => { draft.name = event.target.value; })} />
       <div className="header-actions">
         <button disabled={running} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) setProject(newProject()); }}>새 프로젝트</button>
