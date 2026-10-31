@@ -210,6 +210,7 @@ function App() {
   const file = useRef<HTMLInputElement>(null);
   const image = useRef<HTMLInputElement>(null);
   const soundFile = useRef<HTMLInputElement>(null);
+  const pulseTimers = useRef(new Map<string, number>());
 
   const scene = project.scenes.find((item) => item.id === project.sceneId) || project.scenes[0];
   const selected = scene?.objects.find((item) => item.id === project.selectedId) || scene?.objects[0];
@@ -295,6 +296,8 @@ function App() {
   const stop = () => {
     engine.current?.stop();
     engine.current = null;
+    pulseTimers.current.forEach((timer) => window.clearTimeout(timer));
+    pulseTimers.current.clear();
     setRunning(false);
     setRunScene(null);
   };
@@ -352,6 +355,17 @@ function App() {
     if (!engine.current) return;
     if (pressed) engine.current.keys.add(key);
     else engine.current.keys.delete(key);
+  };
+  const pulseKey = (key: string) => {
+    const previous = pulseTimers.current.get(key);
+    if (previous) window.clearTimeout(previous);
+    updateKey(key, true);
+    const timer = window.setTimeout(() => {
+      if (pulseTimers.current.get(key) !== timer) return;
+      pulseTimers.current.delete(key);
+      updateKey(key, false);
+    }, 120);
+    pulseTimers.current.set(key, timer);
   };
   const setTile = (row: number, column: number) => editScene((current) => {
     const previous = current.tilemap.tiles[row]?.[column];
@@ -445,8 +459,9 @@ function App() {
           </div>
           {running && <div className="dpad" aria-label="방향 조작">
             {([['↑', 'ArrowUp'], ['←', 'ArrowLeft'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']] as const).map(([label, key]) =>
-              <button key={key} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); updateKey(key, true); }}
-                onPointerUp={() => updateKey(key, false)} onPointerCancel={() => updateKey(key, false)}>{label}</button>)}
+              <button key={key} onPointerDown={(event) => { updateKey(key, true); try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is optional for synthetic input. */ } }}
+                onPointerUp={() => updateKey(key, false)} onPointerCancel={() => updateKey(key, false)} onLostPointerCapture={() => updateKey(key, false)}
+                onClick={() => pulseKey(key)}>{label}</button>)}
           </div>}
           <p className="hint">{running ? '방향키, 터치 버튼 또는 게임패드로 움직여 보세요.' : '무대에서 오브젝트를 끌어 위치를 바꿀 수 있어요.'}</p>
         </div>
