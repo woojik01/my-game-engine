@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Blockly from 'blockly';
-import type Phaser from 'phaser';
+import { createStage } from './stageCore.js';
+import { addProjectScene, deleteProjectScene, duplicateProjectScene, renameProjectScene, renameProjectObject, uniqueName, visitBlocks, projectIssues } from './projectActions';
 import { toolbox } from './blocks';
 import {
-  Camera, Engine, newProject, normalizeKeyboardKey, normalizeProject, object, Obj, Project, Resolution, Scene, SoundAsset, uid,
+  Engine, newProject, normalizeProject, object, Obj, Project, Resolution, Scene, SoundAsset, uid,
 } from './runtime';
 import { exportHtml } from './exportHtml';
 import './style.css';
@@ -18,6 +19,8 @@ const RESOLUTION_PRESETS: Array<{ id: string; label: string; width: number; heig
   { id: 'portrait-9-16', label: '세로 9:16 · 540 × 960', width: 540, height: 960 },
   { id: 'square', label: '정사각형 · 600 × 600', width: 600, height: 600 },
 ];
+const numericValue = (raw: string, previous: number, min = -Infinity, max = Infinity) =>
+  raw.trim() && Number.isFinite(Number(raw)) ? Math.min(max, Math.max(min, Number(raw))) : previous;
 
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -30,13 +33,14 @@ function db(): Promise<IDBDatabase> {
 
 async function save(project: Project) {
   const database = await db();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction('projects', 'readwrite');
-    transaction.objectStore('projects').put(project, 'current');
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-  database.close();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('projects', 'readwrite');
+      transaction.objectStore('projects').put(project, 'current');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = transaction.onabort = () => reject(transaction.error);
+    });
+  } finally { database.close(); }
 }
 
 async function load(): Promise<Project | null> {
@@ -58,130 +62,39 @@ function download(name: string, text: string, type: string) {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = name;
+  document.body.appendChild(anchor);
   anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function CommitInput({ value, onCommit, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & { value: string | number; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  return <input {...props} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => { onCommit(event.target.value); setDraft(String(value)); }} onKeyDown={(event) => {
+    if (event.key === 'Enter') event.currentTarget.blur();
+    if (event.key === 'Escape') { event.currentTarget.value = String(value); setDraft(String(value)); event.currentTarget.blur(); }
+  }} />;
 }
 
 function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
-  state: any;
-  onSelect: (id: string) => void;
-  onMove: (id: string, x: number, y: number) => void;
-  onClick: (obj: Obj) => void;
-  onError: (message: string) => void;
-  focusRef: { current: HTMLDivElement | null };
+  state: any; onSelect: (id: string) => void; onMove: (id: string, x: number, y: number) => void;
+  onClick: (obj: Obj) => void; onError: (message: string) => void;
+  focusRef: { current: HTMLCanvasElement | null };
 }) {
-  const element = useRef<HTMLDivElement>(null);
+  const element = useRef<HTMLCanvasElement>(null);
   const latest = useRef({ state, onSelect, onMove, onClick, onError });
   latest.current = { state, onSelect, onMove, onClick, onError };
-
   useEffect(() => {
     if (!element.current) return;
-    let dragging: string | null = null;
-    let game: Phaser.Game | undefined;
-    let disposed = false;
-    void import('phaser').then(({ default: PhaserLib }) => {
-      if (disposed || !element.current) return;
-      game = new PhaserLib.Game({
-        type: PhaserLib.CANVAS,
-        width: latest.current.state.resolution.width,
-        height: latest.current.state.resolution.height,
-        backgroundColor: '#eef5ff',
-        parent: element.current,
-        scale: { mode: PhaserLib.Scale.FIT, autoCenter: PhaserLib.Scale.CENTER_BOTH },
-        scene: {
-          create() {
-            const scene = this as Phaser.Scene;
-            const graphics = scene.add.graphics();
-            const sprites: Record<string, Phaser.GameObjects.Image> = {};
-            const pending = new Set<string>();
-            scene.events.on('update', (_time: number, delta: number) => {
-              const view = latest.current.state;
-              if (view.running && view.engine) view.engine.update(delta / 1000);
-              const camera: Camera = view.camera || { x: 0, y: 0, zoom: 1 };
-              const zoom = Math.min(3, Math.max(0.25, Number(camera.zoom) || 1));
-              graphics.clear();
-              const bg = PhaserLib.Display.Color.HexStringToColor(/^#[0-9a-f]{6}$/i.test(view.background) ? view.background : '#eef5ff');
-              graphics.fillStyle(bg.color);
-              graphics.fillRect(0, 0, view.resolution.width, view.resolution.height);
-
-              for (const id of Object.keys(sprites)) {
-                if (!view.objects.some((obj: Obj) => obj.id === id && obj.image)) {
-                  sprites[id].destroy();
-                  delete sprites[id];
-                }
-              }
-              for (const obj of view.objects as Obj[]) {
-                const x = view.resolution.width / 2 + (obj.x - camera.x) * zoom;
-                const y = view.resolution.height / 2 - (obj.y - camera.y) * zoom;
-                const size = Math.max(1, 60 * (Number(obj.size) || 100) / 100 * zoom);
-                const imageKey = 'img-' + obj.id + '-' + (obj.image?.length || 0);
-                if (obj.image) {
-                  if (!scene.textures.exists(imageKey) && !pending.has(imageKey)) {
-                    pending.add(imageKey);
-                    try { scene.textures.addBase64(imageKey, obj.image); }
-                    catch { pending.delete(imageKey); latest.current.onError(obj.name + '의 이미지를 표시할 수 없습니다.'); }
-                  }
-                  if (scene.textures.exists(imageKey)) {
-                    if (!sprites[obj.id]) sprites[obj.id] = scene.add.image(x, y, imageKey);
-                    else if (sprites[obj.id].texture.key !== imageKey) sprites[obj.id].setTexture(imageKey);
-                    sprites[obj.id].setPosition(x, y).setDisplaySize(size, size).setAngle(obj.direction - 90)
-                      .setVisible(obj.visible).setDepth(view.objects.indexOf(obj) + 1);
-                  }
-                }
-                if (!obj.visible) continue;
-                const color = PhaserLib.Display.Color.HexStringToColor(/^#[0-9a-f]{6}$/i.test(obj.color) ? obj.color : '#4b87ef').color;
-                if (!obj.image || !scene.textures.exists(imageKey)) {
-                  graphics.fillStyle(color);
-                  if (obj.shape === 'square') {
-                    const radians = (obj.direction - 90) * Math.PI / 180;
-                    const cos = Math.cos(radians);
-                    const sin = Math.sin(radians);
-                    const half = size / 2;
-                    graphics.fillPoints([[-half, -half], [half, -half], [half, half], [-half, half]]
-                      .map(([a, b]) => ({ x: x + a * cos - b * sin, y: y + a * sin + b * cos } as any)), true);
-                  } else graphics.fillCircle(x, y, size / 2);
-                }
-                if (!view.running && obj.id === view.selectedId) {
-                  graphics.lineStyle(2, 0x235ed8);
-                  graphics.strokeRect(x - size / 2 - 4, y - size / 2 - 4, size + 8, size + 8);
-                }
-              }
-            });
-            scene.input.on('pointerdown', (pointer: any) => {
-              const view = latest.current.state;
-              const camera: Camera = view.camera || { x: 0, y: 0, zoom: 1 };
-              const zoom = Math.min(3, Math.max(0.25, Number(camera.zoom) || 1));
-              const worldX = (pointer.x - view.resolution.width / 2) / zoom + camera.x;
-              const worldY = (view.resolution.height / 2 - pointer.y) / zoom + camera.y;
-              const target = [...view.objects].reverse().find((obj: Obj) => obj.visible &&
-                Math.abs(worldX - obj.x) <= 30 * obj.size / 100 && Math.abs(worldY - obj.y) <= 30 * obj.size / 100);
-              if (!target) return;
-              if (view.running) latest.current.onClick(target);
-              else {
-                dragging = target.id;
-                latest.current.onSelect(target.id);
-              }
-            });
-            scene.input.on('pointermove', (pointer: any) => {
-              if (!dragging || !pointer.isDown) return;
-              const view = latest.current.state;
-              const camera: Camera = view.camera || { x: 0, y: 0, zoom: 1 };
-              const zoom = Math.min(3, Math.max(0.25, Number(camera.zoom) || 1));
-              latest.current.onMove(dragging,
-                Math.round((pointer.x - view.resolution.width / 2) / zoom + camera.x),
-                Math.round(camera.y - (pointer.y - view.resolution.height / 2) / zoom));
-            });
-            scene.input.on('pointerup', () => { dragging = null; });
-          },
-        },
-      });
-    }).catch(() => {
-      if (!disposed) latest.current.onError('게임 무대를 불러오지 못했습니다. 페이지를 다시 열어 주세요.');
+    const stage = createStage(element.current, () => latest.current.state, {
+      onSelect: (id) => latest.current.onSelect(id), onMove: (id, x, y) => latest.current.onMove(id, x, y),
+      onClick: (obj) => latest.current.onClick(obj), onError: (message) => latest.current.onError(message),
     });
-    return () => { disposed = true; game?.destroy(true); };
-  }, [state.resolution.width, state.resolution.height]);
-
-  return <div className="stage" style={{ aspectRatio: `${state.resolution.width} / ${state.resolution.height}` }} ref={(node) => { element.current = node; focusRef.current = node; }} aria-label="게임 무대" tabIndex={0} />;
+    return () => stage.destroy();
+  }, []);
+  const { width, height } = state.resolution;
+  return <div className="stage" style={{ aspectRatio: `${width}/${height}`, width: state.full ? `min(100%, ${70 * width / height}dvh)` : '100%' }}><canvas ref={(node) => { element.current = node; focusRef.current = node; }} aria-label="게임 무대" tabIndex={0} /></div>;
 }
 
 function App() {
@@ -193,19 +106,26 @@ function App() {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('불러오는 중');
   const [full, setFull] = useState(false);
+  const [workspaceEpoch, setWorkspaceEpoch] = useState(0);
+  const [customResolution, setCustomResolution] = useState(false);
+  const [deletedScene, setDeletedScene] = useState<{ scene: Scene; index: number } | null>(null);
   const engine = useRef<Engine | null>(null);
   const workspace = useRef<Blockly.WorkspaceSvg | null>(null);
+  const workspaceOwner = useRef<{ sceneId: string; objectId: string } | null>(null);
   const blockDiv = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const image = useRef<HTMLInputElement>(null);
   const soundFile = useRef<HTMLInputElement>(null);
   const pulseTimers = useRef(new Map<string, number>());
-  const stageFocus = useRef<HTMLDivElement | null>(null);
+  const stageFocus = useRef<HTMLCanvasElement | null>(null);
 
   const scene = project.scenes.find((item) => item.id === project.sceneId) || project.scenes[0];
   const selected = scene?.objects.find((item) => item.id === project.selectedId) || scene?.objects[0];
   const edit = (change: (draft: Project) => void) => setProject((old) => {
     const next = structuredClone(old);
+    const owner = workspaceOwner.current;
+    const target = owner && next.scenes.find((s) => s.id === owner.sceneId)?.objects.find((o) => o.id === owner.objectId);
+    if (target && workspace.current) target.code = Blockly.serialization.workspaces.save(workspace.current);
     change(next);
     return next;
   });
@@ -217,6 +137,19 @@ function App() {
     const current = draft.scenes.find((item) => item.id === draft.sceneId)?.objects.find((item) => item.id === draft.selectedId);
     if (current) change(current);
   });
+  const snapshotProject = () => {
+    const snapshot = structuredClone(project);
+    const owner = workspaceOwner.current;
+    const target = owner && snapshot.scenes.find((s) => s.id === owner.sceneId)?.objects.find((o) => o.id === owner.objectId);
+    if (target && workspace.current) target.code = Blockly.serialization.workspaces.save(workspace.current);
+    return snapshot;
+  };
+  const replaceProject = (next: Project) => {
+    setProject(next);
+    setDeletedScene(null);
+    setCustomResolution(false);
+    setWorkspaceEpoch((n) => n + 1);
+  };
 
   useEffect(() => {
     load()
@@ -243,14 +176,17 @@ function App() {
       move: { scrollbars: true, drag: true, wheel: true },
     });
     workspace.current = currentWorkspace;
-    let loading = true;
+    workspaceOwner.current = { sceneId: scene.id, objectId: selected.id };
+    currentWorkspace.registerToolboxCategoryCallback('GAME_PROCEDURES', (ws) =>
+      Blockly.Procedures.flyoutCategory(ws).filter((item: any) => !['procedures_defreturn', 'procedures_ifreturn', 'procedures_callreturn'].includes(item.type)));
+    let loading = true, disposed = false;
     try { Blockly.serialization.workspaces.load(selected.code || {}, currentWorkspace); }
     catch { setError('이 오브젝트의 블록을 불러오지 못했습니다.'); }
     loading = false;
     const objectId = selected.id;
     const sceneId = scene.id;
     currentWorkspace.addChangeListener((event: any) => {
-      if (loading || event.isUiEvent || !event.recordUndo) return;
+      if (loading || disposed || event.isUiEvent || !event.recordUndo) return;
       const code = Blockly.serialization.workspaces.save(currentWorkspace);
       setProject((old) => {
         const next = structuredClone(old);
@@ -259,34 +195,12 @@ function App() {
         return next;
       });
     });
-    setTimeout(() => Blockly.svgResize(currentWorkspace), 50);
-    return () => { workspace.current = null; currentWorkspace.dispose(); };
-  }, [scene.id, selected?.id]);
-  useEffect(() => {
-    if (workspace.current) setTimeout(() => workspace.current && Blockly.svgResize(workspace.current), 50);
-  }, [tab]);
-  useEffect(() => {
-    const down = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (!engine.current || (target instanceof HTMLElement &&
-          (target.isContentEditable || Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))))) return;
-      const key = normalizeKeyboardKey(event.key);
-      engine.current.keys.add(key);
-      if (key.startsWith('Arrow') || key === ' ') event.preventDefault();
-    };
-    const up = (event: KeyboardEvent) => engine.current?.keys.delete(normalizeKeyboardKey(event.key));
-    const blur = () => engine.current?.keys.clear();
-    // Blockly handles keyboard events inside its workspace. Capture first so game
-    // input still reaches the runtime while the editor canvas is focused.
-    window.addEventListener('keydown', down, true);
-    window.addEventListener('keyup', up, true);
-    window.addEventListener('blur', blur);
-    return () => {
-      window.removeEventListener('keydown', down, true);
-      window.removeEventListener('keyup', up, true);
-      window.removeEventListener('blur', blur);
-    };
-  }, []);
+    const resize = () => { if (!disposed) Blockly.svgResize(currentWorkspace); };
+    const observer = new ResizeObserver(resize);
+    observer.observe(blockDiv.current);
+    const resizeId = requestAnimationFrame(resize);
+    return () => { disposed = true; observer.disconnect(); cancelAnimationFrame(resizeId); workspace.current = null; workspaceOwner.current = null; currentWorkspace.dispose(); };
+  }, [scene.id, selected?.id, workspaceEpoch]);
 
   const stop = () => {
     engine.current?.stop();
@@ -299,42 +213,63 @@ function App() {
   const start = () => {
     if (running || !scene) return;
     setError('');
-    const initial = structuredClone(scene);
+    const snapshot = snapshotProject();
+    setProject(snapshot);
+    const initial = structuredClone(snapshot.scenes.find((s) => s.id === snapshot.sceneId)!);
     setRunScene(initial);
     const runner = new Engine(initial.objects, setError, {
-      scenes: structuredClone(project.scenes),
+      scenes: structuredClone(snapshot.scenes),
       sceneId: initial.id,
       gravity: initial.gravity,
       camera: initial.camera,
-      resolution: project.resolution,
-      sounds: project.sounds,
+      resolution: snapshot.resolution,
+      sounds: snapshot.sounds,
       onSceneChange: setRunScene,
     });
     engine.current = runner;
     setRunning(true);
+    setTab('장면');
     requestAnimationFrame(() => stageFocus.current?.focus({ preventScroll: true }));
     void runner.start();
   };
   const selectObject = (id: string) => { if (!running) edit((draft) => { draft.selectedId = id; }); };
   const addObject = () => edit((draft) => {
     const current = draft.scenes.find((item) => item.id === draft.sceneId)!;
-    const next = object('오브젝트 ' + (current.objects.length + 1));
+    let n = 1;
+    while (current.objects.some((o) => o.name === '오브젝트 ' + n)) n++;
+    const next = object('오브젝트 ' + n);
     current.objects.push(next);
     draft.selectedId = next.id;
   });
-  const addScene = () => edit((draft) => {
-    const next = newProject(false).scenes[0];
-    next.name = '장면 ' + (draft.scenes.length + 1);
-    next.objects[0].name = '오브젝트 1';
-    draft.scenes.push(next);
-    draft.sceneId = next.id;
-    draft.selectedId = next.objects[0].id;
-  });
+  const addScene = () => edit(addProjectScene);
+  const deleteScene = () => {
+    if (running || project.scenes.length <= 1 || !confirm('"' + scene.name + '" 장면과 그 안의 오브젝트를 삭제할까요? 삭제 후 되돌릴 수 있습니다.')) return;
+    const snapshot = snapshotProject(), index = snapshot.scenes.findIndex((s) => s.id === scene.id);
+    setDeletedScene({ scene: structuredClone(snapshot.scenes[index]), index });
+    deleteProjectScene(snapshot, scene.id);
+    setProject(snapshot);
+  };
+  const restoreScene = () => {
+    if (!deletedScene || running) return;
+    edit((draft) => {
+      const restored = structuredClone(deletedScene.scene);
+      if (draft.scenes.some((s) => s.id === restored.id)) return;
+      const oldName = restored.name;
+      restored.name = uniqueName(restored.name, draft.scenes.map((s) => s.name));
+      for (const obj of restored.objects) visitBlocks(obj.code, (block) => {
+        if (block.type === 'switch_scene' && block.fields?.NAME === oldName) block.fields.NAME = restored.name;
+      });
+      draft.scenes.splice(Math.min(deletedScene.index, draft.scenes.length), 0, restored);
+      draft.sceneId = restored.id;
+      draft.selectedId = restored.objects[0].id;
+    });
+    setDeletedScene(null);
+  };
   const importFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const source = event.target.files?.[0];
       if (!source) return;
-      if (source.size > 32 * 1024 * 1024) throw new Error('프로젝트 파일은 32MB 이하만 열 수 있습니다.');
+      if (source.size > 128 * 1024 * 1024) throw new Error('프로젝트 파일은 128MB 이하만 열 수 있습니다.');
       const content = await source.text();
       const isHtml = /\.html?$/i.test(source.name) || /^\s*(?:<!doctype\s+html|<html(?:\s|>))/i.test(content);
       let data: unknown;
@@ -352,7 +287,7 @@ function App() {
       }
       const imported = normalizeProject(data);
       stop();
-      setProject(imported);
+      replaceProject(imported);
       setTab('블록');
     } catch (cause) {
       setError(cause instanceof Error ? '프로젝트를 열 수 없습니다: ' + cause.message : '프로젝트 파일을 읽을 수 없습니다.');
@@ -360,8 +295,8 @@ function App() {
       event.target.value = '';
     }
   };
-  const exportJson = () => download(project.name.replace(/[\\/:*?"<>|]/g, '_') + '.mge.json', JSON.stringify(project, null, 2), 'application/json');
-  const exportGame = () => download(project.name.replace(/[\\/:*?"<>|]/g, '_') + '.html', exportHtml(project), 'text/html;charset=utf-8');
+  const exportJson = () => download(project.name.replace(/[\\/:*?"<>|]/g, '_') + '.mge.json', JSON.stringify(snapshotProject(), null, 2), 'application/json');
+  const exportGame = () => download(project.name.replace(/[\\/:*?"<>|]/g, '_') + '.html', exportHtml(snapshotProject()), 'text/html;charset=utf-8');
   const updateKey = (key: string, pressed: boolean) => {
     if (!engine.current) return;
     if (pressed) engine.current.keys.add(key);
@@ -378,12 +313,13 @@ function App() {
     }, 120);
     pulseTimers.current.set(key, timer);
   };
-  const resolutionPreset = RESOLUTION_PRESETS.find((preset) =>
+  const resolutionPreset = customResolution ? 'custom' : RESOLUTION_PRESETS.find((preset) =>
     preset.width === project.resolution.width && preset.height === project.resolution.height)?.id || 'custom';
   const setResolution = (key: keyof Resolution, rawValue: string) => {
     const value = Number(rawValue);
     if (!Number.isFinite(value) || value <= 0) return;
     const maximum = key === 'width' ? 3840 : 2160;
+    setCustomResolution(true);
     edit((draft) => { draft.resolution[key] = Math.min(maximum, Math.max(240, Math.round(value))); });
   };
   const addSound = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -407,7 +343,7 @@ function App() {
         name: source.name.replace(/\.[^.]+$/, ''),
         dataUrl: String(reader.result),
       };
-      edit((draft) => { draft.sounds.push(asset); });
+      edit((draft) => { asset.name = uniqueName(asset.name, draft.sounds.map((s) => s.name)); draft.sounds.push(asset); });
     };
     reader.onerror = () => setError('소리 파일을 읽지 못했습니다.');
     reader.readAsDataURL(source);
@@ -434,26 +370,27 @@ function App() {
 
   if (!scene) return <div className="toast">프로젝트에 사용할 장면이 없습니다.</div>;
   const runtimeScene = running && runScene ? runScene : scene;
+  const issues = projectIssues(project);
   const view = {
     background: runtimeScene.background,
-    objects: running ? runtimeScene.objects : scene.objects,
+    objects: running && engine.current ? engine.current.objects : scene.objects,
     camera: running && engine.current ? engine.current.camera : runtimeScene.camera,
     resolution: project.resolution,
     selectedId: selected?.id,
-    running,
+    running, full,
     engine: running ? engine.current : null,
   };
 
   return <div className="app">
     <header>
-      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.2.4</small></span></div>
+      <div className="brand"><span className="brandmark">✦</span><span>My Game Engine<small>v0.3.0</small></span></div>
       <input className="project-name" aria-label="프로젝트 이름" value={project.name} disabled={running} onChange={(event) => edit((draft) => { draft.name = event.target.value; })} />
       <div className="header-actions">
-        <button disabled={running} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) setProject(newProject()); }}>새 프로젝트</button>
-        <button disabled={running} onClick={() => file.current?.click()}>열기</button>
-        <button onClick={exportJson}>저장</button>
-        <button onClick={exportGame}>HTML 내보내기</button>
-        <button className={running ? 'stop' : 'primary'} onClick={() => running ? stop() : start()}>{running ? '■ 중지' : '▶ 실행'}</button>
+        <button disabled={running || !ready} onClick={() => { if (confirm('새 프로젝트를 만들까요? 저장 파일로 현재 프로젝트를 보관할 수 있습니다.')) replaceProject(newProject()); }}>새 프로젝트</button>
+        <button disabled={running || !ready} onClick={() => file.current?.click()}>열기</button>
+        <button disabled={!ready} onClick={exportJson}>저장</button>
+        <button disabled={!ready} onClick={exportGame}>HTML 내보내기</button>
+        <button disabled={!ready} className={running ? 'stop' : 'primary'} onClick={() => running ? stop() : start()}>{running ? '■ 중지' : '▶ 실행'}</button>
       </div>
       <input hidden type="file" ref={file} accept=".json,.html,.htm,application/json,text/html" onChange={importFile} />
     </header>
@@ -464,9 +401,10 @@ function App() {
       <section className={'left tab-' + tab + ' ' + (tab === '블록' ? 'mobile-hidden' : '')}>
         <div className={'panel stage-panel ' + (full ? 'fullscreen' : '')}>
           <div className="panel-title"><div><strong>무대</strong><span className="muted"> {running ? '실행 중' : '편집 중'}</span></div><button onClick={() => setFull(!full)}>{full ? '닫기' : '⛶'}</button></div>
-          <div onPointerDown={() => { if (engine.current) engine.current.mouse = true; }} onPointerUp={() => { if (engine.current) engine.current.mouse = false; }} onPointerCancel={() => { if (engine.current) engine.current.mouse = false; }}>
-          <Stage state={view} focusRef={stageFocus} onSelect={selectObject} onClick={(target) => engine.current?.click(target)} onError={setError} onMove={(id, x, y) => editObject((current) => {
-              if (current.id === id) { current.x = x; current.y = y; }
+          <div className="stage-host">
+          <Stage state={view} focusRef={stageFocus} onSelect={selectObject} onClick={(target) => engine.current?.click(target)} onError={setError} onMove={(id, x, y) => editScene((current) => {
+              const target = current.objects.find((o) => o.id === id);
+              if (target) { target.x = x; target.y = y; }
             })} />
           </div>
           {running && <div className="dpad" aria-label="방향 조작">
@@ -486,11 +424,20 @@ function App() {
           })}>
             {project.scenes.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
           </select>
-          <input aria-label="장면 이름" disabled={running} value={scene.name} onChange={(event) => editScene((current) => { current.name = event.target.value; })} />
+          <div className="object-actions scene-actions">
+            <button disabled={running} onClick={() => edit((draft) => duplicateProjectScene(draft, scene.id))}>장면 복제</button>
+            <button disabled={running || project.scenes.length === 1} title={project.scenes.length === 1 ? '장면은 하나 이상 필요합니다' : '현재 장면 삭제'} onClick={deleteScene}>장면 삭제</button>
+            {deletedScene && <button disabled={running} onClick={restoreScene}>삭제 되돌리기</button>}
+          </div>
+          <CommitInput aria-label="장면 이름" disabled={running} value={scene.name} onCommit={(value) => {
+            if (value === scene.name) return;
+            const next = snapshotProject(); renameProjectScene(next, scene.id, value); setProject(next); setWorkspaceEpoch((n) => n + 1);
+          }} />
           <label className="inline">배경 색상 <input type="color" value={scene.background} disabled={running} onChange={(event) => editScene((current) => { current.background = event.target.value; })} /></label>
           <div className="resolution-control">
             <label>게임 기준 해상도
               <select aria-label="게임 기준 해상도" value={resolutionPreset} disabled={running} onChange={(event) => {
+                setCustomResolution(event.target.value === 'custom');
                 const preset = RESOLUTION_PRESETS.find((item) => item.id === event.target.value);
                 if (preset) edit((draft) => { draft.resolution = { width: preset.width, height: preset.height }; });
               }}>
@@ -499,18 +446,20 @@ function App() {
               </select>
             </label>
             <div className="properties resolution-settings">
-              <label>너비 (240–3840)<input type="number" min="240" max="3840" step="1" value={project.resolution.width} disabled={running} onChange={(event) => setResolution('width', event.target.value)} /></label>
-              <label>높이 (240–2160)<input type="number" min="240" max="2160" step="1" value={project.resolution.height} disabled={running} onChange={(event) => setResolution('height', event.target.value)} /></label>
+              <label>너비 (240–3840)<CommitInput type="number" min="240" max="3840" step="1" value={project.resolution.width} disabled={running} onCommit={(value) => setResolution('width', value)} /></label>
+              <label>높이 (240–2160)<CommitInput type="number" min="240" max="2160" step="1" value={project.resolution.height} disabled={running} onCommit={(value) => setResolution('height', value)} /></label>
             </div>
             <p className="hint">내보낸 게임은 이 비율을 유지하며 PC와 모바일 화면에 맞춰 크기가 조정됩니다.</p>
           </div>
           <div className="properties scene-settings">
-            <label>중력<input type="number" min="0" max="2000" value={scene.gravity} disabled={running} onChange={(event) => editScene((current) => { current.gravity = Number(event.target.value); })} /></label>
-            <label>카메라 확대<input type="number" min="0.25" max="3" step="0.1" value={scene.camera.zoom} disabled={running} onChange={(event) => editScene((current) => { current.camera.zoom = Math.max(0.25, Math.min(3, Number(event.target.value) || 1)); })} /></label>
-            <label>카메라 X<input type="number" value={scene.camera.x} disabled={running} onChange={(event) => editScene((current) => { current.camera.x = Number(event.target.value); current.camera.followId = undefined; })} /></label>
-            <label>카메라 Y<input type="number" value={scene.camera.y} disabled={running} onChange={(event) => editScene((current) => { current.camera.y = Number(event.target.value); current.camera.followId = undefined; })} /></label>
+            <label>중력<CommitInput type="number" min="0" max="2000" value={scene.gravity} disabled={running} onCommit={(value) => editScene((current) => { current.gravity = numericValue(value, current.gravity, 0, 2000); })} /></label>
+            <label>카메라 확대<CommitInput type="number" min="0.25" max="3" step="0.1" value={scene.camera.zoom} disabled={running} onCommit={(value) => editScene((current) => { current.camera.zoom = numericValue(value, current.camera.zoom, .25, 3); })} /></label>
+            <label>카메라 X<CommitInput type="number" value={scene.camera.x} disabled={running} onCommit={(value) => editScene((current) => { current.camera.x = numericValue(value, current.camera.x); delete current.camera.followId; })} /></label>
+            <label>카메라 Y<CommitInput type="number" value={scene.camera.y} disabled={running} onCommit={(value) => editScene((current) => { current.camera.y = numericValue(value, current.camera.y); delete current.camera.followId; })} /></label>
           </div>
           <button className="wide-button" disabled={running || !selected} onClick={() => editScene((current) => { current.camera.followId = selected?.id; })}>선택 오브젝트 따라가기</button>
+          <button className="wide-button" disabled={running || !scene.camera.followId} onClick={() => editScene((current) => { delete current.camera.followId; })}>카메라 따라가기 해제</button>
+          {issues.length > 0 && <details className="project-issues"><summary>블록 연결 확인 {issues.length}개</summary>{issues.map((issue) => <p key={issue}>{issue}</p>)}</details>}
         </div>
 
         <div className="panel objects-panel">
@@ -525,12 +474,17 @@ function App() {
               <button disabled={running} onClick={() => edit((draft) => {
                 const current = draft.scenes.find((item) => item.id === draft.sceneId)!;
                 const copy = structuredClone(current.objects.find((item) => item.id === draft.selectedId)!);
-                copy.id = uid(); copy.name += ' 복사'; copy.x += 20;
+                const oldId = copy.id, oldName = copy.name;
+                copy.id = uid(); copy.name = uniqueName(copy.name + ' 복사', current.objects.map((o) => o.name)); copy.x += 20;
+                visitBlocks(copy.code, (block) => {
+                  if (['camera_follow', 'touching_target'].includes(block.type) && [oldId, oldName].includes(block.fields?.TARGET)) block.fields.TARGET = copy.id;
+                });
                 current.objects.push(copy); draft.selectedId = copy.id;
               })}>복제</button>
               <button disabled={running || scene.objects.length === 1} onClick={() => edit((draft) => {
                 const current = draft.scenes.find((item) => item.id === draft.sceneId)!;
                 current.objects = current.objects.filter((item) => item.id !== draft.selectedId);
+                if (current.camera.followId === draft.selectedId) delete current.camera.followId;
                 draft.selectedId = current.objects[0].id;
               })}>삭제</button>
               <button disabled={running} onClick={() => edit((draft) => {
@@ -545,29 +499,45 @@ function App() {
               })}>앞으로</button>
             </div>
             <div className="properties">
-              <label>이름<input value={selected.name} disabled={running} onChange={(event) => editObject((current) => { current.name = event.target.value; })} /></label>
+              <label>이름<CommitInput value={selected.name} disabled={running} onCommit={(value) => {
+                if (value === selected.name) return;
+                const next = snapshotProject(); renameProjectObject(next, selected.id, value); setProject(next); setWorkspaceEpoch((n) => n + 1);
+              }} /></label>
               {(['x', 'y', 'size', 'direction'] as const).map((key, index) => <label key={key}>{['X', 'Y', '크기 %', '방향 °'][index]}
-                <input type="number" value={selected[key]} disabled={running} onChange={(event) => editObject((current) => { current[key] = Number(event.target.value); })} /></label>)}
-              <label>모양<select value={selected.shape} disabled={running} onChange={(event) => editObject((current) => { current.shape = event.target.value; })}>
-                <option value="circle">원</option><option value="square">사각형</option>
+                <CommitInput type="number" value={selected[key]} disabled={running} onCommit={(value) => editObject((current) => {
+                  if (value.trim() && Number.isFinite(Number(value))) current[key] = key === 'size' ? Math.min(10000, Math.max(1, Number(value))) : Number(value);
+                })} /></label>)}
+              <label>모양<select value={selected.shape} disabled={running} onChange={(event) => editObject((current) => { current.shape = event.target.value; delete current.image; if (current.shape === 'text' && !current.text) current.text = '텍스트'; })}>
+                <option value="circle">원</option><option value="square">사각형</option><option value="text">글자</option>
               </select></label>
               <label>이미지<button type="button" disabled={running} onClick={() => image.current?.click()}>이미지 선택</button></label>
               <input hidden type="file" ref={image} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                 const source = event.target.files?.[0];
-                if (source && source.size > 2 * 1024 * 1024) setError('이미지는 2MB 이하여야 합니다.');
+                const sceneId = scene.id, objectId = selected.id;
+                if (source && !['image/png', 'image/jpeg', 'image/webp'].includes(source.type)) setError('PNG, JPEG 또는 WebP 이미지를 선택하세요.');
+                else if (source && source.size > 2 * 1024 * 1024) setError('이미지는 2MB 이하여야 합니다.');
                 else if (source) {
                   const reader = new FileReader();
-                  reader.onload = () => editObject((current) => { current.image = String(reader.result); });
+                  reader.onload = () => edit((draft) => {
+                    const target = draft.scenes.find((s) => s.id === sceneId)?.objects.find((o) => o.id === objectId);
+                    if (target) target.image = String(reader.result);
+                  });
+                  reader.onerror = () => setError('이미지를 읽지 못했습니다.');
                   reader.readAsDataURL(source);
                 }
                 event.target.value = '';
               }} />
+              {selected.image && <label>이미지 삭제<button disabled={running} onClick={() => editObject((current) => { delete current.image; })}>이미지 지우기</button></label>}
+              {selected.shape === 'text' && <>
+                <label>표시 글자<CommitInput value={selected.text || ''} disabled={running} onCommit={(value) => editObject((current) => { current.text = value.slice(0, 8192); })} /></label>
+                <label>글자 크기<CommitInput type="number" min="8" max="200" value={selected.fontSize || 24} disabled={running} onCommit={(value) => editObject((current) => { current.fontSize = Math.min(200, Math.max(8, Number(value) || 24)); })} /></label>
+              </>}
               <label>색상<input type="color" value={selected.color} disabled={running} onChange={(event) => editObject((current) => { current.color = event.target.value; })} /></label>
               <label className="inline"><input type="checkbox" checked={selected.visible} disabled={running} onChange={(event) => editObject((current) => { current.visible = event.target.checked; })} /> 보이기</label>
               <label className="inline"><input type="checkbox" checked={selected.physics} disabled={running} onChange={(event) => editObject((current) => { current.physics = event.target.checked; current.vx = 0; current.vy = 0; })} /> 물리 사용</label>
-              <label>속도 X<input type="number" value={selected.vx} disabled={running} onChange={(event) => editObject((current) => { current.vx = Number(event.target.value); })} /></label>
-              <label>속도 Y<input type="number" value={selected.vy} disabled={running} onChange={(event) => editObject((current) => { current.vy = Number(event.target.value); })} /></label>
-              <label>튕김<input type="number" min="0" max="1" step="0.1" value={selected.bounce} disabled={running} onChange={(event) => editObject((current) => { current.bounce = Math.max(0, Math.min(1, Number(event.target.value))); })} /></label>
+              <label>속도 X<CommitInput type="number" value={selected.vx} disabled={running} onCommit={(value) => editObject((current) => { current.vx = numericValue(value, current.vx); })} /></label>
+              <label>속도 Y<CommitInput type="number" value={selected.vy} disabled={running} onCommit={(value) => editObject((current) => { current.vy = numericValue(value, current.vy); })} /></label>
+              <label>튕김<CommitInput type="number" min="0" max="1" step="0.1" value={selected.bounce} disabled={running} onCommit={(value) => editObject((current) => { current.bounce = numericValue(value, current.bounce, 0, 1); })} /></label>
             </div>
           </>}
         </div>

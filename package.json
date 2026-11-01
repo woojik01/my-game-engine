@@ -1,13 +1,14 @@
 {
   "name": "my-game-engine",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "node scripts/clean-dist.mjs && tsc --noEmit && vite build && node scripts/sync-pages-root.mjs",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --import tsx tests/runtime.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:browser": "playwright test"
   },
   "keywords": [],
   "author": "",
@@ -15,11 +16,11 @@
   "type": "module",
   "dependencies": {
     "blockly": "^13.4.0",
-    "phaser": "^4.2.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

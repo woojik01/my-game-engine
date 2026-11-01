@@ -27,12 +27,19 @@ main{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:12
 .panel-title{margin-bottom:10px}
 .panel-title button{padding:6px 10px}
 .muted{font-size:12px;color:#98a7bb;font-weight:500}
-.stage{width:100%;aspect-ratio:4/3;background:#eef5ff;border-radius:10px;overflow:hidden;touch-action:none}
-.stage canvas{display:block}
-.stage:focus-visible{outline:3px solid #74a5f4;outline-offset:2px}
+.stage{position:relative;width:100%;aspect-ratio:4/3;background:#eef5ff;border-radius:10px;overflow:hidden;touch-action:none}
+.stage canvas{position:absolute;inset:0;display:block;width:100%;height:100%;outline:none}
+.stage:focus-within{outline:3px solid #74a5f4;outline-offset:2px}
+.stage-host{display:flex;align-items:center;justify-content:center;min-height:0}
 .hint{font-size:11px;color:#8b9bb0;margin:9px 0 0;line-height:1.5}
 .fullscreen{position:fixed;inset:10px;z-index:20;display:flex;flex-direction:column}
-.fullscreen .stage{height:min(75vh,80vw);width:auto}
+.fullscreen .stage-host{flex:1}
+.fullscreen .stage{height:auto;flex-shrink:0}
+.left>.panel{flex-shrink:0}
+.scene-actions{margin:0 0 8px}
+.project-issues{font-size:12px;color:#9c4d22;margin-top:10px;line-height:1.5}
+.project-issues summary{cursor:pointer}
+.project-issues p{overflow-wrap:anywhere;margin:7px 0}
 .dpad{display:flex;gap:5px;justify-content:center;margin-top:8px;touch-action:none}
 .dpad button{width:45px;height:40px;font-size:18px;touch-action:none}
 .panel select,.panel>input{width:100%;margin-bottom:7px}
@@ -97,7 +104,7 @@ footer{height:27px;padding:5px 18px;display:flex;justify-content:space-between;f
   .workspace-note{font-size:11px}
   .blocklyToolboxDiv{max-width:110px}
   .blockly{touch-action:none}
-  .panel{padding:12px;max-height:calc(100dvh - 130px)}
+  .panel{padding:12px}
   .tab-장면 .objects-panel,.tab-장면 .sound-panel{display:none}
   .tab-오브젝트 .scene-panel,.tab-오브젝트 .sound-panel{display:none}
   .tab-모양 .stage-panel,.tab-모양 .scene-panel,.tab-모양 .sound-panel{display:none}
