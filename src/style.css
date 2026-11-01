@@ -119,3 +119,17 @@ footer{height:27px;padding:5px 18px;display:flex;justify-content:space-between;f
   .project-name{width:92px}
   .resolution-control{padding:8px}
 }
+@media(max-width:800px){
+  header{gap:7px;padding:8px 10px}
+  .project-name{flex:1;width:auto;min-height:40px;font-size:16px}
+  .header-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;flex-basis:100%;width:100%;margin:0}
+  .header-actions button{min-width:0;min-height:44px;padding:6px 3px;font-size:11px;line-height:1.25;white-space:normal}
+  .panel-title button,.object-actions button,.object-list button,.sound-row button,.wide-button{min-height:44px;font-size:12px}
+  .panel input,.panel select{min-height:44px;font-size:16px}
+  .panel input[type=color]{min-height:38px}
+  .panel input[type=checkbox]{min-height:22px;width:22px}
+  .properties label{font-size:12px}
+  .dpad button{width:48px;height:44px}
+  .blocklyTreeRow{height:44px!important}
+  .workspace-top>div:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}

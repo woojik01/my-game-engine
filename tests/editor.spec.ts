@@ -183,3 +183,23 @@ test('도형·이미지 겹침 순서와 같은 크기 이미지 교체', async 
   await page.locator('input[accept="image/png,image/jpeg,image/webp"]').setInputFiles({ name: 'blue.png', mimeType: 'image/png', buffer: Buffer.from(colors[1].split(',')[1], 'base64') });
   await expect.poll(pixel).toEqual([0, 0, 255]);
 });
+test('다른 오브젝트의 변수를 선택하고 블록을 끌어 작성하기', async ({ page }) => {
+  await page.goto('/');
+  const p = newProject(), other = object('다른 오브젝트');
+  other.code = { variables: [{ id: 'shared-score', name: '점수' }], blocks: { languageVersion: 0, blocks: [] } };
+  p.scenes[0].objects.push(other);
+  await importProject(page, p);
+  await page.getByText('자료', { exact: true }).click();
+  const flyout = page.locator('.blocklyFlyout').filter({ visible: true });
+  await expect(flyout.getByText('점수', { exact: true }).first()).toBeVisible();
+  const block = flyout.locator('.blocklyBlockCanvas > .blocklyDraggable').first();
+  const from = await block.boundingBox(), workspace = await page.locator('.block-wrap').boundingBox();
+  expect(from).not.toBeNull(); expect(workspace).not.toBeNull();
+  await page.mouse.move(from!.x + 15, from!.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(workspace!.x + workspace!.width * .7, workspace!.y + 180, { steps: 20 });
+  await page.mouse.up();
+  const saved = await savedProject(page);
+  expect(saved.scenes[0].objects[0].code.blocks.blocks.length).toBeGreaterThan(0);
+  expect(saved.scenes[0].objects[0].code.variables.some((v: any) => v.name === '점수')).toBe(true);
+});
