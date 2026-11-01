@@ -1,10 +1,23 @@
 import { test, expect, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { deflateSync } from 'node:zlib';
 import { newProject, object, Project } from '../src/runtime';
 
 const num = (n: number) => ({ shadow: { type: 'math_number', fields: { NUM: n } } });
 const get = (id: string) => ({ block: { type: 'variables_get', fields: { VAR: { id } } } });
+function colorPng(red: number, green: number, blue: number) {
+  const chunk = (name: string, data: Buffer) => {
+    const type = Buffer.from(name), buffer = Buffer.concat([type, data]);
+    let crc = 0xffffffff;
+    for (const byte of buffer) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); }
+    const size = Buffer.alloc(4), checksum = Buffer.alloc(4);
+    size.writeUInt32BE(data.length); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+    return Buffer.concat([size, buffer, checksum]);
+  };
+  const header = Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]);
+  return 'data:image/png;base64,' + Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.from([0, red, green, blue, 255]), { level: 0 })), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+}
 async function importProject(page: Page, project: Project | string, html = false) {
   await page.locator('input[accept^=".json"]').setInputFiles({
     name: html ? 'game.html' : 'game.mge.json', mimeType: html ? 'text/html' : 'application/json',
@@ -128,18 +141,20 @@ test('점수·사용자 블록·장면 전환과 오프라인 모바일 HTML 실
   expect(bounds!.height).toBeLessThanOrEqual(844);
   const touch = await gamePoint(exported);
   for (let n = 1; n <= 2; n++) { await exported.touchscreen.tap(touch.x, touch.y); await expectText(exported, '점수: ' + n); }
+  await exported.screenshot({ path: testInfo.outputPath('mobile-game.png') });
   await exported.touchscreen.tap(touch.x, touch.y); await expectText(exported, '승리!');
   expect(await exported.locator('button').count()).toBe(0);
   expect(requests).toEqual([]); expect(errors).toEqual([]);
   await mobile.close();
 });
-test('모바일 실행 무대와 사용자 해상도 입력', async ({ browser }) => {
+test('모바일 실행 무대와 사용자 해상도 입력', async ({ browser }, testInfo) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage(); await observeText(page); await page.goto('/');
   await importProject(page, scoreGame());
   await page.getByRole('button', { name: '▶ 실행' }).click();
   await expect(page.locator('canvas[aria-label="게임 무대"]')).toBeVisible();
   await expectText(page, '점수: 0');
+  await page.screenshot({ path: testInfo.outputPath('mobile-editor.png') });
   await page.getByRole('button', { name: '■ 중지' }).click();
   await page.getByLabel('게임 기준 해상도').selectOption('custom');
   const width = page.getByLabel('너비 (240–3840)'), height = page.getByLabel('높이 (240–2160)');
@@ -153,11 +168,7 @@ test('모바일 실행 무대와 사용자 해상도 입력', async ({ browser }
 });
 test('도형·이미지 겹침 순서와 같은 크기 이미지 교체', async ({ page }) => {
   await page.goto('/');
-  const colors = await page.evaluate(() => {
-    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 2;
-    const ctx = canvas.getContext('2d')!;
-    return ['#ff0000', '#0000ff'].map((color) => { ctx.fillStyle = color; ctx.fillRect(0, 0, 2, 2); return canvas.toDataURL(); });
-  });
+  const colors = [colorPng(255, 0, 0), colorPng(0, 0, 255)];
   expect(colors[0].length).toBe(colors[1].length);
   const p = newProject(), sprite = p.scenes[0].objects[0];
   sprite.image = colors[0]; sprite.code = {};

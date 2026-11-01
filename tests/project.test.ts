@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as Blockly from 'blockly';
 import { Engine, newProject, object } from '../src/runtime';
-import { addProjectScene, deleteProjectScene, duplicateProjectScene, renameProjectScene, renameProjectObject, projectIssues } from '../src/projectActions';
+import { addProjectScene, deleteProjectScene, duplicateProjectScene, renameProjectScene, renameProjectObject, projectIssues, projectVariables, renameProjectVariable } from '../src/projectActions';
 
 (globalThis as any).requestAnimationFrame = (callback: () => void) => setTimeout(callback, 1);
 const number = (n: number) => ({ shadow: { type: 'math_number', fields: { NUM: n } } });
@@ -83,4 +83,16 @@ assert.equal(disabledActor.x, 0);
 assert.equal(disabledActor.y, 7);
 disabledEngine.stop();
 assert.deepEqual(errors, []);
+const variablesProject = newProject();
+variablesProject.scenes[0].objects[0].code = { variables: [{ id: 'v1', name: '점수' }] };
+const variableOther = object();
+variableOther.code = { variables: [{ id: 'v2', name: '점수' }, { id: 'param', name: '매개변수' }], blocks: { blocks: [
+  { type: 'procedures_defnoreturn', extraState: { params: [{ id: 'param', name: '매개변수' }] }, fields: { NAME: '함수' } },
+] } };
+variablesProject.scenes[0].objects.push(variableOther);
+assert.deepEqual(projectVariables(variablesProject).map((v) => v.name), ['점수']);
+renameProjectVariable(variablesProject, '점수', '획득 점수');
+assert.equal(variablesProject.scenes[0].objects[0].code.variables[0].name, '획득 점수');
+assert.equal(variableOther.code.variables[0].name, '획득 점수');
+assert.equal(variableOther.code.variables[1].name, '매개변수');
 console.log('PASS: scene deletion/duplication/rename links, variables, text, custom parameters, touch coordinates and disabled blocks');

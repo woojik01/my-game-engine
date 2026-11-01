@@ -97,3 +97,34 @@ export function projectIssues(project: Project) {
   });
   return [...new Set(issues)];
 }
+
+function parameterIds(code: any) {
+  const ids = new Set<string>();
+  visitBlocks(code, (block) => {
+    if (block.type === 'procedures_defnoreturn') for (const param of block.extraState?.params || []) if (param.id) ids.add(param.id);
+  });
+  return ids;
+}
+
+export function projectVariables(project: Project) {
+  const variables = new Map<string, { id: string; name: string; type?: string }>();
+  for (const scene of project.scenes) for (const obj of scene.objects) {
+    const params = parameterIds(obj.code);
+    for (const variable of obj.code?.variables || []) {
+      if (typeof variable.name === 'string' && !params.has(variable.id)) variables.set((variable.type || '') + ':' + variable.name, variable);
+    }
+  }
+  return [...variables.values()];
+}
+
+export function renameProjectVariable(project: Project, previous: string, name: string) {
+  for (const scene of project.scenes) for (const obj of scene.objects) {
+    const params = parameterIds(obj.code);
+    for (const variable of obj.code?.variables || []) {
+      if (variable.name === previous && !params.has(variable.id)) variable.name = name;
+    }
+    visitBlocks(obj.code, (block) => {
+      if (block.fields?.VAR === previous) block.fields.VAR = name;
+    });
+  }
+}

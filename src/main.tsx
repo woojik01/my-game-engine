@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Blockly from 'blockly';
 import { createStage } from './stageCore.js';
-import { addProjectScene, deleteProjectScene, duplicateProjectScene, renameProjectScene, renameProjectObject, uniqueName, visitBlocks, projectIssues } from './projectActions';
+import { addProjectScene, deleteProjectScene, duplicateProjectScene, renameProjectScene, renameProjectObject, uniqueName, visitBlocks, projectIssues, projectVariables, renameProjectVariable } from './projectActions';
 import { toolbox } from './blocks';
 import {
   Engine, newProject, normalizeProject, object, Obj, Project, Resolution, Scene, SoundAsset, uid,
@@ -180,7 +180,16 @@ function App() {
     currentWorkspace.registerToolboxCategoryCallback('GAME_PROCEDURES', (ws) =>
       Blockly.Procedures.flyoutCategory(ws).filter((item: any) => !['procedures_defreturn', 'procedures_ifreturn', 'procedures_callreturn'].includes(item.type)));
     let loading = true, disposed = false;
-    try { Blockly.serialization.workspaces.load(selected.code || {}, currentWorkspace); }
+    try {
+      Blockly.serialization.workspaces.load(selected.code || {}, currentWorkspace);
+      Blockly.Events.disable();
+      try {
+        const variables = currentWorkspace.getVariableMap();
+        for (const variable of projectVariables(project)) {
+          if (!variables.getVariable(variable.name, variable.type || '')) variables.createVariable(variable.name, variable.type || '', variable.id);
+        }
+      } finally { Blockly.Events.enable(); }
+    }
     catch { setError('이 오브젝트의 블록을 불러오지 못했습니다.'); }
     loading = false;
     const objectId = selected.id;
@@ -192,6 +201,13 @@ function App() {
         const next = structuredClone(old);
         const target = next.scenes.find((item) => item.id === sceneId)?.objects.find((item) => item.id === objectId);
         if (target) target.code = code;
+        if (event.type === Blockly.Events.VAR_RENAME) {
+          let parameter = false;
+          visitBlocks(code, (block) => {
+            if (block.type === 'procedures_defnoreturn' && block.extraState?.params?.some((p: any) => p.id === event.varId)) parameter = true;
+          });
+          if (!parameter) renameProjectVariable(next, event.oldName, event.newName);
+        }
         return next;
       });
     });
