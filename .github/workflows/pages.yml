@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
@@ -31,6 +31,8 @@ jobs:
           name: browser-checks
           path: test-results
           retention-days: 3
+      - run: node scripts/publish-pages-root.mjs
+        if: success() && github.ref == 'refs/heads/main'
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

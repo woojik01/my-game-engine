@@ -189,9 +189,9 @@ test('다른 오브젝트의 변수를 선택하고 블록을 끌어 작성하�
   other.code = { variables: [{ id: 'shared-score', name: '점수' }], blocks: { languageVersion: 0, blocks: [] } };
   p.scenes[0].objects.push(other);
   await importProject(page, p);
-  await page.getByText('자료', { exact: true }).click();
+  await page.locator('.blocklyToolboxCategory').filter({ hasText: /^자료$/ }).click();
   const flyout = page.locator('.blocklyFlyout').filter({ visible: true });
-  await expect(flyout.getByText('점수', { exact: true }).first()).toBeVisible();
+  await expect(flyout.locator('.blocklyText').filter({ hasText: '점수' }).first()).toBeVisible();
   const block = flyout.locator('.blocklyBlockCanvas > .blocklyDraggable').first();
   const from = await block.boundingBox(), workspace = await page.locator('.block-wrap').boundingBox();
   expect(from).not.toBeNull(); expect(workspace).not.toBeNull();

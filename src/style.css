@@ -74,6 +74,8 @@ main{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:12
 .blocklyToolboxDiv{background:#f7f9fd!important;border-right:1px solid #e6edf7}
 .blocklyTreeRow{height:36px!important;display:flex;align-items:center}
 .blocklyTreeLabel{font-family:inherit!important}
+.blocklyToolboxCategoryLabel{font-family:inherit!important}
+.blocklyToolboxCategory{min-height:40px}
 footer{height:27px;padding:5px 18px;display:flex;justify-content:space-between;font-size:11px;color:#93a1b3}
 .mobile-tabs{display:none}
 .toast{position:fixed;bottom:36px;right:18px;background:#8e3545;color:white;border-radius:10px;padding:12px 16px;z-index:30;max-width:90vw}
@@ -131,5 +133,6 @@ footer{height:27px;padding:5px 18px;display:flex;justify-content:space-between;f
   .properties label{font-size:12px}
   .dpad button{width:48px;height:44px}
   .blocklyTreeRow{height:44px!important}
+  .blocklyToolboxCategory{min-height:44px}
   .workspace-top>div:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
