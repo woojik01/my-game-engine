@@ -19,6 +19,7 @@ header{min-height:68px;background:white;border-bottom:1px solid #dfe7f2;display:
 .primary{background:#3479e6;color:white;border-color:#3479e6}
 .primary:hover{background:#2866c8;color:white}
 .stop{background:#ed6370;color:white;border-color:#ed6370}
+.stop:hover{background:#d84d5a;color:white;border-color:#d84d5a}
 main{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:12px;padding:12px;min-height:0;flex:1}
 .left{overflow:auto;display:flex;flex-direction:column;gap:10px}
 .panel,.workspace-panel{background:#fff;border:1px solid #e1e9f3;border-radius:14px;box-shadow:0 3px 12px #24487808}

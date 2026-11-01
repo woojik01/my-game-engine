@@ -124,6 +124,8 @@ test('점수·사용자 블록·장면 전환과 오프라인 모바일 HTML 실
   expect(roundTrip.sounds).toEqual(p.sounds);
   expect(roundTrip.scenes[0].objects[1].code.blocks.blocks[1].next.block.extraState.name).toBe('점수 추가');
   await page.getByRole('button', { name: '▶ 실행' }).click();
+  await page.getByRole('button', { name: '■ 중지' }).hover();
+  await expect(page.getByRole('button', { name: '■ 중지' })).toHaveCSS('background-color', 'rgb(216, 77, 90)');
   await expectText(page, '점수: 0');
   const point = await gamePoint(page);
   for (let n = 1; n <= 2; n++) { await page.mouse.click(point.x, point.y); await expectText(page, '점수: ' + n); }
