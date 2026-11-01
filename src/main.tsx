@@ -4,7 +4,7 @@ import * as Blockly from 'blockly';
 import type Phaser from 'phaser';
 import { toolbox } from './blocks';
 import {
-  Camera, Engine, newProject, normalizeKeyboardKey, normalizeProject, object, Obj, Project, Scene, SoundAsset, TileMap, uid,
+  Camera, Engine, newProject, normalizeKeyboardKey, normalizeProject, object, Obj, Project, Resolution, Scene, SoundAsset, uid,
 } from './runtime';
 import { exportHtml } from './exportHtml';
 import './style.css';
@@ -12,6 +12,12 @@ import './style.css';
 const DB = 'my-game-engine-v1';
 const SOUND_LIMIT = 5 * 1024 * 1024;
 const SOUND_TOTAL_LIMIT = 20 * 1024 * 1024;
+const RESOLUTION_PRESETS: Array<{ id: string; label: string; width: number; height: number }> = [
+  { id: 'landscape-4-3', label: '가로 4:3 · 480 × 360', width: 480, height: 360 },
+  { id: 'landscape-16-9', label: '가로 16:9 · 960 × 540', width: 960, height: 540 },
+  { id: 'portrait-9-16', label: '세로 9:16 · 540 × 960', width: 540, height: 960 },
+  { id: 'square', label: '정사각형 · 600 × 600', width: 600, height: 600 },
+];
 
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -77,8 +83,8 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
       if (disposed || !element.current) return;
       game = new PhaserLib.Game({
         type: PhaserLib.CANVAS,
-        width: 480,
-        height: 360,
+        width: latest.current.state.resolution.width,
+        height: latest.current.state.resolution.height,
         backgroundColor: '#eef5ff',
         parent: element.current,
         scale: { mode: PhaserLib.Scale.FIT, autoCenter: PhaserLib.Scale.CENTER_BOTH },
@@ -96,26 +102,7 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
               graphics.clear();
               const bg = PhaserLib.Display.Color.HexStringToColor(/^#[0-9a-f]{6}$/i.test(view.background) ? view.background : '#eef5ff');
               graphics.fillStyle(bg.color);
-              graphics.fillRect(0, 0, 480, 360);
-
-              const map: TileMap | undefined = view.tilemap;
-              if (map) {
-                const tileSize = map.tileSize * zoom;
-                for (let row = 0; row < map.rows; row++) {
-                  for (let column = 0; column < map.columns; column++) {
-                    const tile = map.tiles[row]?.[column];
-                    if (tile == null) continue;
-                    const worldX = (column + 0.5 - map.columns / 2) * map.tileSize;
-                    const worldY = (map.rows / 2 - row - 0.5) * map.tileSize;
-                    const x = 240 + (worldX - camera.x) * zoom;
-                    const y = 180 - (worldY - camera.y) * zoom;
-                    graphics.fillStyle(PhaserLib.Display.Color.HexStringToColor(map.palette[tile] || '#3978c6').color);
-                    graphics.fillRect(x - tileSize / 2, y - tileSize / 2, tileSize, tileSize);
-                    graphics.lineStyle(1, 0xffffff, 0.18);
-                    graphics.strokeRect(x - tileSize / 2, y - tileSize / 2, tileSize, tileSize);
-                  }
-                }
-              }
+              graphics.fillRect(0, 0, view.resolution.width, view.resolution.height);
 
               for (const id of Object.keys(sprites)) {
                 if (!view.objects.some((obj: Obj) => obj.id === id && obj.image)) {
@@ -124,8 +111,8 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
                 }
               }
               for (const obj of view.objects as Obj[]) {
-                const x = 240 + (obj.x - camera.x) * zoom;
-                const y = 180 - (obj.y - camera.y) * zoom;
+                const x = view.resolution.width / 2 + (obj.x - camera.x) * zoom;
+                const y = view.resolution.height / 2 - (obj.y - camera.y) * zoom;
                 const size = Math.max(1, 60 * (Number(obj.size) || 100) / 100 * zoom);
                 const imageKey = 'img-' + obj.id + '-' + (obj.image?.length || 0);
                 if (obj.image) {
@@ -164,8 +151,8 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
               const view = latest.current.state;
               const camera: Camera = view.camera || { x: 0, y: 0, zoom: 1 };
               const zoom = Math.min(3, Math.max(0.25, Number(camera.zoom) || 1));
-              const worldX = (pointer.x - 240) / zoom + camera.x;
-              const worldY = (180 - pointer.y) / zoom + camera.y;
+              const worldX = (pointer.x - view.resolution.width / 2) / zoom + camera.x;
+              const worldY = (view.resolution.height / 2 - pointer.y) / zoom + camera.y;
               const target = [...view.objects].reverse().find((obj: Obj) => obj.visible &&
                 Math.abs(worldX - obj.x) <= 30 * obj.size / 100 && Math.abs(worldY - obj.y) <= 30 * obj.size / 100);
               if (!target) return;
@@ -180,7 +167,9 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
               const view = latest.current.state;
               const camera: Camera = view.camera || { x: 0, y: 0, zoom: 1 };
               const zoom = Math.min(3, Math.max(0.25, Number(camera.zoom) || 1));
-              latest.current.onMove(dragging, Math.round((pointer.x - 240) / zoom + camera.x), Math.round(camera.y - (pointer.y - 180) / zoom));
+              latest.current.onMove(dragging,
+                Math.round((pointer.x - view.resolution.width / 2) / zoom + camera.x),
+                Math.round(camera.y - (pointer.y - view.resolution.height / 2) / zoom));
             });
             scene.input.on('pointerup', () => { dragging = null; });
           },
@@ -190,9 +179,9 @@ function Stage({ state, onSelect, onMove, onClick, onError, focusRef }: {
       if (!disposed) latest.current.onError('게임 무대를 불러오지 못했습니다. 페이지를 다시 열어 주세요.');
     });
     return () => { disposed = true; game?.destroy(true); };
-  }, []);
+  }, [state.resolution.width, state.resolution.height]);
 
-  return <div className="stage" ref={(node) => { element.current = node; focusRef.current = node; }} aria-label="게임 무대" tabIndex={0} />;
+  return <div className="stage" style={{ aspectRatio: `${state.resolution.width} / ${state.resolution.height}` }} ref={(node) => { element.current = node; focusRef.current = node; }} aria-label="게임 무대" tabIndex={0} />;
 }
 
 function App() {
@@ -204,7 +193,6 @@ function App() {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('불러오는 중');
   const [full, setFull] = useState(false);
-  const [paintColor, setPaintColor] = useState<number | null>(0);
   const engine = useRef<Engine | null>(null);
   const workspace = useRef<Blockly.WorkspaceSvg | null>(null);
   const blockDiv = useRef<HTMLDivElement>(null);
@@ -318,7 +306,7 @@ function App() {
       sceneId: initial.id,
       gravity: initial.gravity,
       camera: initial.camera,
-      tilemap: initial.tilemap,
+      resolution: project.resolution,
       sounds: project.sounds,
       onSceneChange: setRunScene,
     });
@@ -390,13 +378,14 @@ function App() {
     }, 120);
     pulseTimers.current.set(key, timer);
   };
-  const setTile = (row: number, column: number) => editScene((current) => {
-    const previous = current.tilemap.tiles[row]?.[column];
-    current.tilemap.tiles[row][column] = previous === paintColor ? null : paintColor;
-  });
-  const clearTiles = () => editScene((current) => {
-    current.tilemap.tiles = current.tilemap.tiles.map((row) => row.map(() => null));
-  });
+  const resolutionPreset = RESOLUTION_PRESETS.find((preset) =>
+    preset.width === project.resolution.width && preset.height === project.resolution.height)?.id || 'custom';
+  const setResolution = (key: keyof Resolution, rawValue: string) => {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value) || value <= 0) return;
+    const maximum = key === 'width' ? 3840 : 2160;
+    edit((draft) => { draft.resolution[key] = Math.min(maximum, Math.max(240, Math.round(value))); });
+  };
   const addSound = (event: React.ChangeEvent<HTMLInputElement>) => {
     const source = event.target.files?.[0];
     if (!source) return;
@@ -449,7 +438,7 @@ function App() {
     background: runtimeScene.background,
     objects: running ? runtimeScene.objects : scene.objects,
     camera: running && engine.current ? engine.current.camera : runtimeScene.camera,
-    tilemap: running && engine.current ? engine.current.tilemap : runtimeScene.tilemap,
+    resolution: project.resolution,
     selectedId: selected?.id,
     running,
     engine: running ? engine.current : null,
@@ -499,6 +488,22 @@ function App() {
           </select>
           <input aria-label="장면 이름" disabled={running} value={scene.name} onChange={(event) => editScene((current) => { current.name = event.target.value; })} />
           <label className="inline">배경 색상 <input type="color" value={scene.background} disabled={running} onChange={(event) => editScene((current) => { current.background = event.target.value; })} /></label>
+          <div className="resolution-control">
+            <label>게임 기준 해상도
+              <select aria-label="게임 기준 해상도" value={resolutionPreset} disabled={running} onChange={(event) => {
+                const preset = RESOLUTION_PRESETS.find((item) => item.id === event.target.value);
+                if (preset) edit((draft) => { draft.resolution = { width: preset.width, height: preset.height }; });
+              }}>
+                {RESOLUTION_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                <option value="custom">직접 입력</option>
+              </select>
+            </label>
+            <div className="properties resolution-settings">
+              <label>너비 (240–3840)<input type="number" min="240" max="3840" step="1" value={project.resolution.width} disabled={running} onChange={(event) => setResolution('width', event.target.value)} /></label>
+              <label>높이 (240–2160)<input type="number" min="240" max="2160" step="1" value={project.resolution.height} disabled={running} onChange={(event) => setResolution('height', event.target.value)} /></label>
+            </div>
+            <p className="hint">내보낸 게임은 이 비율을 유지하며 PC와 모바일 화면에 맞춰 크기가 조정됩니다.</p>
+          </div>
           <div className="properties scene-settings">
             <label>중력<input type="number" min="0" max="2000" value={scene.gravity} disabled={running} onChange={(event) => editScene((current) => { current.gravity = Number(event.target.value); })} /></label>
             <label>카메라 확대<input type="number" min="0.25" max="3" step="0.1" value={scene.camera.zoom} disabled={running} onChange={(event) => editScene((current) => { current.camera.zoom = Math.max(0.25, Math.min(3, Number(event.target.value) || 1)); })} /></label>
@@ -506,22 +511,6 @@ function App() {
             <label>카메라 Y<input type="number" value={scene.camera.y} disabled={running} onChange={(event) => editScene((current) => { current.camera.y = Number(event.target.value); current.camera.followId = undefined; })} /></label>
           </div>
           <button className="wide-button" disabled={running || !selected} onClick={() => editScene((current) => { current.camera.followId = selected?.id; })}>선택 오브젝트 따라가기</button>
-        </div>
-
-        <div className="panel tilemap-panel">
-          <div className="panel-title"><div><strong>타일맵</strong><span className="muted"> {scene.tilemap.columns}×{scene.tilemap.rows}</span></div><button disabled={running} onClick={clearTiles}>지우기</button></div>
-          <div className="tile-palette" aria-label="타일 색상 선택">
-            {scene.tilemap.palette.map((color, index) => <button key={color} aria-label={'타일 색상 ' + (index + 1)} aria-pressed={paintColor === index}
-              className={paintColor === index ? 'selected' : ''} style={{ backgroundColor: color }} disabled={running} onClick={() => setPaintColor(index)} />)}
-            <button aria-label="타일 지우개" aria-pressed={paintColor === null} className={'tile-eraser ' + (paintColor === null ? 'selected' : '')} disabled={running} onClick={() => setPaintColor(null)}>⌫</button>
-          </div>
-          <div className="tile-grid" style={{ gridTemplateColumns: 'repeat(' + scene.tilemap.columns + ', 18px)' }} aria-label="타일 편집 격자">
-            {scene.tilemap.tiles.flatMap((row, rowIndex) => row.map((tile, columnIndex) => <button key={rowIndex + '-' + columnIndex}
-              aria-label={'타일 ' + (rowIndex + 1) + ', ' + (columnIndex + 1)}
-              style={{ backgroundColor: tile == null ? '#f4f7fb' : scene.tilemap.palette[tile] || '#3978c6' }}
-              disabled={running} onClick={() => setTile(rowIndex, columnIndex)} />))}
-          </div>
-          <p className="hint">색을 고른 다음 칸을 눌러 바닥이나 장애물을 그리세요. 타일은 물리 충돌에 사용됩니다.</p>
         </div>
 
         <div className="panel objects-panel">

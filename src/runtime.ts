@@ -3,7 +3,7 @@ import './blocks';
 import { example } from './blocks';
 
 export type Camera = { x: number; y: number; zoom: number; followId?: string };
-export type TileMap = { columns: number; rows: number; tileSize: number; palette: string[]; tiles: Array<Array<number | null>> };
+export type Resolution = { width: number; height: number };
 export type SoundAsset = { id: string; name: string; dataUrl: string };
 export type Obj = {
   id: string; name: string; x: number; y: number; size: number; direction: number;
@@ -12,41 +12,43 @@ export type Obj = {
 };
 export type Scene = {
   id: string; name: string; background: string; objects: Obj[];
-  gravity: number; camera: Camera; tilemap: TileMap;
+  gravity: number; camera: Camera;
 };
 export type Project = {
-  version: number; name: string; scenes: Scene[]; sceneId: string; selectedId: string; sounds: SoundAsset[];
+  version: number; name: string; scenes: Scene[]; sceneId: string; selectedId: string;
+  resolution: Resolution; sounds: SoundAsset[];
 };
 
 export const uid = () => crypto.randomUUID();
-export const TILE_PALETTE = ['#3978c6', '#68a9e8', '#74b987', '#dba552', '#8266bd'];
-export const blankTileMap = (): TileMap => ({
-  columns: 15, rows: 11, tileSize: 32, palette: [...TILE_PALETTE],
-  tiles: Array.from({ length: 11 }, () => Array<number | null>(15).fill(null)),
-});
+export const DEFAULT_RESOLUTION: Resolution = { width: 480, height: 360 };
 export const object = (name = '오브젝트'): Obj => ({
   id: uid(), name, x: 0, y: 0, size: 100, direction: 90, visible: true,
   shape: 'circle', color: '#4b87ef', code: {}, physics: false, vx: 0, vy: 0, bounce: 0.2,
 });
 const makeScene = (name = '장면 1'): Scene => ({
   id: uid(), name, background: '#eef5ff', objects: [object(name === '장면 1' ? '플레이어' : '오브젝트 1')],
-  gravity: 420, camera: { x: 0, y: 0, zoom: 1 }, tilemap: blankTileMap(),
+  gravity: 420, camera: { x: 0, y: 0, zoom: 1 },
 });
 export function newProject(withExample = false): Project {
   const scene = makeScene();
   if (withExample) scene.objects[0].code = structuredClone(example);
   return {
-    version: 2, name: withExample ? '첫 번째 게임' : '새 프로젝트',
-    scenes: [scene], sceneId: scene.id, selectedId: scene.objects[0].id, sounds: [],
+    version: 3, name: withExample ? '첫 번째 게임' : '새 프로젝트',
+    scenes: [scene], sceneId: scene.id, selectedId: scene.objects[0].id,
+    resolution: { ...DEFAULT_RESOLUTION }, sounds: [],
   };
 }
 
-/** Upgrade v1 projects while keeping existing scenes, objects, and blocks. */
+/** Upgrade older projects while keeping scenes, objects, blocks, and resources. */
 export function normalizeProject(input: any): Project {
-  if (!input || ![1, 2].includes(input.version) || typeof input.name !== 'string' ||
+  if (!input || ![1, 2, 3].includes(input.version) || typeof input.name !== 'string' ||
       !Array.isArray(input.scenes) || !input.scenes.length) {
     throw new Error('지원하지 않는 프로젝트 형식입니다.');
   }
+  const resolution: Resolution = {
+    width: Number.isFinite(input.resolution?.width) ? Math.min(3840, Math.max(240, Math.round(input.resolution.width))) : DEFAULT_RESOLUTION.width,
+    height: Number.isFinite(input.resolution?.height) ? Math.min(2160, Math.max(240, Math.round(input.resolution.height))) : DEFAULT_RESOLUTION.height,
+  };
   const scenes: Scene[] = input.scenes.map((raw: any, index: number) => {
     if (!raw || typeof raw.id !== 'string' || !Array.isArray(raw.objects)) {
       throw new Error('장면 또는 오브젝트 데이터가 올바르지 않습니다.');
@@ -71,24 +73,6 @@ export function normalizeProject(input: any): Project {
         bounce: Number.isFinite(o.bounce) ? Math.min(1, Math.max(0, o.bounce)) : 0.2,
       };
     });
-    const map = raw.tilemap;
-    const defaults = blankTileMap();
-    const columns = Number.isInteger(map?.columns) ? Math.min(60, Math.max(1, map.columns)) : defaults.columns;
-    const rows = Number.isInteger(map?.rows) ? Math.min(40, Math.max(1, map.rows)) : defaults.rows;
-    const palette = Array.isArray(map?.palette)
-      ? map.palette.filter((color: any) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)).slice(0, 16)
-      : [];
-    const tilemap: TileMap = {
-      columns, rows,
-      tileSize: Number.isFinite(map?.tileSize) ? Math.min(96, Math.max(8, map.tileSize)) : defaults.tileSize,
-      palette: palette.length ? palette : defaults.palette,
-      tiles: Array.from({ length: rows }, (_, y) =>
-        Array.from({ length: columns }, (_, x) => {
-          const cell = map?.tiles?.[y]?.[x];
-          return Number.isInteger(cell) && cell >= 0 && cell < (palette.length || defaults.palette.length) ? cell : null;
-        }),
-      ),
-    };
     const camera = raw.camera || {};
     return {
       id: raw.id,
@@ -102,7 +86,6 @@ export function normalizeProject(input: any): Project {
         zoom: Number.isFinite(camera.zoom) ? Math.min(3, Math.max(0.25, camera.zoom)) : 1,
         ...(typeof camera.followId === 'string' ? { followId: camera.followId } : {}),
       },
-      tilemap,
     };
   });
   if (!scenes.some((scene) => scene.id === input.sceneId)) throw new Error('현재 장면을 찾을 수 없습니다.');
@@ -122,8 +105,8 @@ export function normalizeProject(input: any): Project {
     if (sounds.length === 32) break;
   }
   return {
-    version: 2, name: input.name, scenes, sceneId: input.sceneId,
-    selectedId,
+    version: 3, name: input.name, scenes, sceneId: input.sceneId,
+    selectedId, resolution,
     sounds,
   };
 }
@@ -136,7 +119,7 @@ const keyAliases: Record<string, string> = {
 };
 export const normalizeKeyboardKey = (key: string) => keyAliases[key] || (key.length === 1 ? key.toLowerCase() : key);
 type EngineOptions = {
-  scenes?: Scene[]; sceneId?: string; gravity?: number; camera?: Camera; tilemap?: TileMap;
+  scenes?: Scene[]; sceneId?: string; gravity?: number; camera?: Camera; resolution?: Resolution;
   sounds?: SoundAsset[]; onSceneChange?: (scene: Scene) => void;
   gamepadSource?: () => ArrayLike<Gamepad | null>;
 };
@@ -151,7 +134,7 @@ export class Engine {
   sceneId: string;
   gravity: number;
   camera: Camera;
-  tilemap: TileMap;
+  resolution: Resolution;
   sounds: SoundAsset[];
   scenes: Scene[];
   private epoch = 0;
@@ -167,7 +150,7 @@ export class Engine {
     const scene = this.scenes.find((item) => item.id === this.sceneId);
     this.gravity = options.gravity ?? scene?.gravity ?? 420;
     this.camera = { ...(options.camera || scene?.camera || { x: 0, y: 0, zoom: 1 }) };
-    this.tilemap = structuredClone(options.tilemap || scene?.tilemap || blankTileMap());
+    this.resolution = { ...(options.resolution || DEFAULT_RESOLUTION) };
     this.sounds = options.sounds || [];
     this.onSceneChange = options.onSceneChange;
     this.gamepadSource = options.gamepadSource || (() => {
@@ -381,8 +364,7 @@ export class Engine {
     this.objects = structuredClone(target.objects);
     this.gravity = target.gravity;
     this.camera = { ...target.camera };
-    this.tilemap = structuredClone(target.tilemap);
-    this.onSceneChange?.({ ...target, objects: this.objects, camera: this.camera, tilemap: this.tilemap });
+    this.onSceneChange?.({ ...target, objects: this.objects, camera: this.camera });
     await this.loadSceneWorkspaces();
   }
 
@@ -455,46 +437,24 @@ export class Engine {
       obj.vy -= this.gravity * dt;
       obj.x += obj.vx * dt;
       obj.y += obj.vy * dt;
-      obj.x = clamp(obj.x, -240 + radius, 240 - radius);
-      if (obj.x === -240 + radius || obj.x === 240 - radius) obj.vx *= -obj.bounce;
-      if (obj.y < -180 + radius) {
-        obj.y = -180 + radius;
+      const halfWidth = this.resolution.width / 2;
+      const halfHeight = this.resolution.height / 2;
+      obj.x = clamp(obj.x, -halfWidth + radius, halfWidth - radius);
+      if (obj.x === -halfWidth + radius || obj.x === halfWidth - radius) obj.vx *= -obj.bounce;
+      if (obj.y < -halfHeight + radius) {
+        obj.y = -halfHeight + radius;
         obj.vy = obj.vy < -28 ? -obj.vy * obj.bounce : 0;
       }
-      if (obj.y > 180 - radius) {
-        obj.y = 180 - radius;
+      if (obj.y > halfHeight - radius) {
+        obj.y = halfHeight - radius;
         obj.vy = obj.vy > 28 ? -obj.vy * obj.bounce : 0;
       }
-      this.collideWithTiles(obj, radius);
       this.collideWithObjects(obj, radius);
     }
     const followed = this.camera.followId && this.objects.find((item) => item.id === this.camera.followId);
     if (followed) {
       this.camera.x = followed.x;
       this.camera.y = followed.y;
-    }
-  }
-
-  private collideWithTiles(obj: Obj, radius: number) {
-    const map = this.tilemap;
-    const tileSize = map.tileSize;
-    for (let row = 0; row < map.rows; row++) {
-      for (let column = 0; column < map.columns; column++) {
-        if (map.tiles[row]?.[column] == null) continue;
-        const x = (column + 0.5 - map.columns / 2) * tileSize;
-        const y = (map.rows / 2 - row - 0.5) * tileSize;
-        const overlapX = radius + tileSize / 2 - Math.abs(obj.x - x);
-        const overlapY = radius + tileSize / 2 - Math.abs(obj.y - y);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-        if (overlapX < overlapY) {
-          obj.x += Math.sign(obj.x - x || 1) * overlapX;
-          obj.vx = -obj.vx * obj.bounce;
-        } else {
-          const direction = Math.sign(obj.y - y || 1);
-          obj.y += direction * overlapY;
-          obj.vy = direction > 0 ? Math.max(0, obj.vy) : obj.vy < -28 ? -obj.vy * obj.bounce : 0;
-        }
-      }
     }
   }
 

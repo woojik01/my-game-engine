@@ -85,36 +85,27 @@ migrated.version = 1;
 delete migrated.scenes[0].gravity;
 delete migrated.scenes[0].camera;
 delete migrated.scenes[0].tilemap;
+delete migrated.resolution;
 delete migrated.scenes[0].objects[0].physics;
 delete migrated.scenes[0].objects[0].vx;
 delete migrated.scenes[0].objects[0].vy;
 const upgraded = normalizeProject(migrated);
-assert.equal(upgraded.version, 2);
+assert.equal(upgraded.version, 3);
 assert.equal(upgraded.scenes[0].objects[0].id, player.id);
 assert.equal(upgraded.scenes[0].objects[0].physics, false);
-assert.equal(upgraded.scenes[0].tilemap.tiles.length, 11);
+assert.deepEqual(upgraded.resolution, { width: 480, height: 360 });
+assert.equal('tilemap' in upgraded.scenes[0], false);
 
 const falling = object('물리 오브젝트');
 falling.physics = true;
-falling.y = -140;
+falling.y = -80;
 falling.vy = -120;
-const physicsEngine = new Engine([falling], (message) => errors.push(message), { gamepadSource: () => [] });
+const physicsEngine = new Engine([falling], (message) => errors.push(message), { resolution: { width: 240, height: 240 }, gamepadSource: () => [] });
 for (let i = 0; i < 24; i++) physicsEngine.update(1 / 60);
-assert.ok(falling.y >= -150, 'gravity collides with the stage floor');
+assert.ok(falling.y >= -90, 'gravity uses the configured stage floor');
 assert.equal(falling.vy, 0, 'small floor impacts settle instead of falling through');
 
-const platform = object('타일 위 오브젝트');
-platform.physics = true;
-platform.y = 80;
-const sceneWithTiles = newProject().scenes[0];
-sceneWithTiles.tilemap.tiles[5][7] = 0;
-const tileEngine = new Engine([platform], (message) => errors.push(message), {
-  tilemap: sceneWithTiles.tilemap, gravity: sceneWithTiles.gravity, gamepadSource: () => [],
-});
-for (let i = 0; i < 120; i++) tileEngine.update(1 / 60);
-assert.ok(platform.y >= 45 && platform.y < 50, 'physical objects land on painted solid tiles');
 physicsEngine.stop();
-tileEngine.stop();
 
 const pad = {
   buttons: Array.from({ length: 16 }, (_, index) => ({ pressed: index === 0 })),
@@ -165,7 +156,9 @@ const exportedScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 assert.ok(exportedScript, 'HTML export includes a playable script');
 assert.doesNotThrow(() => new Function(exportedScript), 'exported game script parses as JavaScript');
 assert.ok(html.includes('id="game"') && html.includes('project-data'), 'export includes a canvas and embedded project');
+assert.ok(!html.includes('<button') && !html.includes('id="fullscreen"') && !html.includes('data-key='), 'export has no injected controls');
+assert.ok(html.includes('aspect-ratio:480/360'), 'export keeps the configured game aspect ratio');
 assert.equal(errors.length, 0, errors.join('\n'));
 workspace.dispose();
 restored.dispose();
-console.log('PASS: movement, Blockly roundtrip, repeat/conditions, custom blocks, click events, v1 migration, physics, tiles, gamepad, camera, scenes, and HTML export');
+console.log('PASS: movement, Blockly roundtrip, repeat/conditions, custom blocks, click events, migration, resolution physics, gamepad, camera, scenes, and standalone HTML export');
