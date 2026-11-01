@@ -347,7 +347,22 @@ function App() {
       const source = event.target.files?.[0];
       if (!source) return;
       if (source.size > 32 * 1024 * 1024) throw new Error('프로젝트 파일은 32MB 이하만 열 수 있습니다.');
-      const imported = normalizeProject(JSON.parse(await source.text()));
+      const content = await source.text();
+      const isHtml = /\.html?$/i.test(source.name) || /^\s*(?:<!doctype\s+html|<html(?:\s|>))/i.test(content);
+      let data: unknown;
+      if (isHtml) {
+        // Parse the file as inert HTML and read only the JSON payload. Never execute
+        // the exported game's script while restoring its editable project.
+        const document = new DOMParser().parseFromString(content, 'text/html');
+        const payload = document.getElementById('project-data');
+        if (!payload || payload.tagName !== 'SCRIPT' || payload.getAttribute('type')?.toLowerCase() !== 'application/json') {
+          throw new Error('편집 데이터가 포함된 My Game Engine 내보내기 HTML이 아닙니다.');
+        }
+        data = JSON.parse(payload.textContent || '');
+      } else {
+        data = JSON.parse(content);
+      }
+      const imported = normalizeProject(data);
       stop();
       setProject(imported);
       setTab('블록');
@@ -451,7 +466,7 @@ function App() {
         <button onClick={exportGame}>HTML 내보내기</button>
         <button className={running ? 'stop' : 'primary'} onClick={() => running ? stop() : start()}>{running ? '■ 중지' : '▶ 실행'}</button>
       </div>
-      <input hidden type="file" ref={file} accept=".json,application/json" onChange={importFile} />
+      <input hidden type="file" ref={file} accept=".json,.html,.htm,application/json,text/html" onChange={importFile} />
     </header>
     <div className="mobile-tabs">
       {['장면', '오브젝트', '블록', '모양', '소리'].map((item) => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}
